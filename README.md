@@ -38,8 +38,6 @@ Twitchのチャットに書かれた文章を翻訳します。日本語が否�
 
 6. config/default.jsonに適当な値を入力します。twitchChannelId, twitchRoomId は付属の getchannelid.js で取得が可能です（後述）。
 
----
-
 <dl>
 <dt>twitchUserName</dt>
   <dd>翻訳botとして利用するユーザーのユーザー名を設定します。</dd>
@@ -59,8 +57,6 @@ Twitchのチャットに書かれた文章を翻訳します。日本語が否�
   <dd>同一ユーザーから1分間の間に受け付ける最大翻訳回数を設定します。ここに設定した数値までを翻訳します。</dd>
 </dl>
 
----
-
 7. スクリプトを起動します。例ではバックグラウンドに落としていますが、デーモン化したい場合は適宜デーモン化してください。
 ex)
 ```bash
@@ -73,7 +69,7 @@ ex)
 * getchannelid.js は config/jsonupdate.json を設定ファイルとして利用します。
 
 config/jsonupdate.jsonについて：
----
+
 <dl>
 <dt>twitchClientId</dt>
   <dd>翻訳botのアプリ用のクライアントIDを設定します。dev.twitch.tv で取得したものです。</dd>
@@ -82,7 +78,6 @@ config/jsonupdate.jsonについて：
 <dt>oauthToken</dt>
   <dd>翻訳botのアプリ用OAuthトークンを設定します。twitchapps.com/tokengen/ で取得したものです。</dd>
 </dl>
----
 
 ```bash
 NODE_ENV=jsonupdate ./getchannelid.js 翻訳botを利用するチャンネル名 翻訳文を書くチャットルーム名
@@ -102,7 +97,7 @@ Room-ID: 3efb5e2c-df73-460f-822e-ede65ae87ee7
 * emotelistupdate.js は config/jsonupdate.json を設定ファイルとして利用します。
 
 config/jsonupdate.jsonについて：
----
+
 <dl>
 <dt>twitchClientId</dt>
   <dd>翻訳botのアプリ用のクライアントIDを設定します。dev.twitch.tv で取得したものです。</dd>
@@ -111,7 +106,6 @@ config/jsonupdate.jsonについて：
 <dt>oauthToken</dt>
   <dd>翻訳botのアプリ用OAuthトークンを設定します。twitchapps.com/tokengen/ で取得したものです。</dd>
 </dl>
----
 
 設定を書き換えたら、以下のようにスクリプトを実行して emoticons.json を更新します。
 
