@@ -1,0 +1,21 @@
+{
+  "name": "scarbot221",
+  "version": "1.0.0",
+  "description": "chatbot on Twitch.tv",
+  "main": "scarbot.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "bluewizard221",
+  "license": "MIT",
+  "dependencies": {
+    "async": "^2.6.2",
+    "config": "^3.1.0",
+    "fs": "0.0.1-security",
+    "google-translate": "^2.2.0",
+    "log4js": "^4.1.0",
+    "request": "^2.88.0",
+    "sync-request": "^6.1.0",
+    "tmi.js": "^1.4.2"
+  }
+}

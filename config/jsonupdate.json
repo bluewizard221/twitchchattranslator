@@ -1,0 +1,7 @@
+{
+  "config": {
+    "twitchClientId": 翻訳botのアプリ用のクライアントID,
+    "twitchChannel": 自分のチャンネル名（アルファベット）,
+    "oauthToken": 翻訳bot用ユーザーで取得したOAuthのトークン
+  }
+}

@@ -1,9 +1,10 @@
 # Logs
-logs
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+logs/*
+!.gitkeep
 
 # Runtime data
 pids
@@ -59,3 +60,4 @@ typings/
 
 # next.js build output
 .next
+README.BAK
