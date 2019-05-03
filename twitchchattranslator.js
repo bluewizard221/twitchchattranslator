@@ -14,6 +14,13 @@ log4js.configure({
 const logger = log4js.getLogger('system')
 
 // loading config from configfile
+const pidFile = confFile.config.pidFile
+
+if (!pidFile) {
+  logger.error('Pidfile is not provided')
+  process.exit(1)
+}
+
 const googleApiKey = confFile.config.googleApiKey
 
 if (!googleApiKey) {
@@ -103,6 +110,12 @@ const googleTranslate = require('google-translate')(googleApiKey)
 
 // JSON for cool down timer
 let coolDown = {}
+
+fs.writeFile(pidFile, process.pid, (err) => {
+  if (err) {
+    logger.error(err)
+  }
+})
 
 // setting up tmi.js
 const ops = {
