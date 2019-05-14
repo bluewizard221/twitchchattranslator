@@ -309,7 +309,7 @@ function removeEmoticons(line) {
 	let index = search.indexOf(emotes[i])
 
 	while (index !== -1) {
-	    logger.info('DEBUG: hits [' + emotes[i] + ']')
+//	    logger.info('DEBUG: hits [' + emotes[i] + ']')
 	    search.splice(index, 1)
 	    index = search.indexOf(emotes[i])
 	}
@@ -327,7 +327,7 @@ function translateMessage(target, context, line) {
 	toLang = 'ja'
     }
 
-    logger.info('DEBUG: line [' + line + ']')
+//    logger.info('DEBUG: line [' + line + ']')
 
     googleTranslate.translate(line, toLang, function(err, translation) {
 	if (err) {
@@ -341,3 +341,47 @@ function translateMessage(target, context, line) {
 function onConnectedHandler(addr, port) {
     logger.info('Connected to twitch chat channel [' + addr + ':' + port + ']')
 }
+
+process.on('SIGINT', () => {
+    logger.info('SIGINT caught. shutting down...')
+
+    process.exit(0)
+})
+
+process.on('SIGHUP', () => {
+    logger.info('SIGHUP caught. refreshing database...')
+
+    ignoreUsers = ''
+    ignoreUsers = JSON.parse(fs.readFileSync(iuJson, 'utf8')).ignoreusers
+
+    if (!ignoreUsers) {
+	logger.error("ERROR: can't reload " + iuJson)
+	client.say('#' + twitchChannel, "/me ERROR: can't reload ignoring user list")
+    } else {
+	logger.info("ignoring user list has been reloaded from " + iuJson)
+	client.say('#' + twitchChannel, '/me ignoring user list has been reloaded from json file')
+    }
+
+
+    ignoreLine = ''
+    ignoreLine = JSON.parse(fs.readFileSync(ignoreLineFile, 'utf8')).ignorelines
+
+    if (!ignoreLine) {
+	logger.error("ERROR: can't reload " + ignoreLineFile)
+	client.say('#' + twitchChannel, "/me ERROR: can't reload ignoring line list")
+    } else {
+	logger.info("ignoring user list has been reloaded from " + ignoreLineFile)
+	client.say('#' + twitchChannel, '/me ignoring line list has been reloaded from json file')
+    }
+
+    emotes = ''
+    emotes = JSON.parse(fs.readFileSync(emoticonJson, 'utf8')).emoticons
+
+    if (!emotes) {
+	logger.error("ERROR: can't reload " + emoticonJson)
+	client.say('#' + twitchChannel, "/me ERROR: can't reload emoticons user list")
+    } else {
+	logger.info("emoticons list has been reloaded from " + emoticonJson)
+	client.say('#' + twitchChannel, '/me emoticons list has been reloaded from json file')
+    }
+})

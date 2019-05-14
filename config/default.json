@@ -1,5 +1,6 @@
 {
   "config": {
+    "pidFIle": 設置するpidファイルのファイルパス,
     "twitchUserName": 翻訳bot用のユーザー名（アルファベット）,
     "twitchOauth": 翻訳bot用ユーザーのOAuthトークン,
     "twitchChannel": 翻訳対象のチャンネル名（アルファベット）,

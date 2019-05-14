@@ -39,6 +39,8 @@ Twitchのチャットに書かれた文章を翻訳します。日本語が否�
 6. config/default.jsonに適当な値を入力します。twitchChannelId, twitchRoomId は付属の getchannelid.js で取得が可能です（後述）。
 
 <dl>
+<dt>pidFile</dt>
+  <dd>プロセスIDを記入するファイルのファイルパスを設定します。</dd>
 <dt>twitchUserName</dt>
   <dd>翻訳botとして利用するユーザーのユーザー名を設定します。</dd>
 <dt>twitchOauth</dt>
