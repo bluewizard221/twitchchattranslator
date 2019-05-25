@@ -69,10 +69,15 @@ const targetisOtherRoom = confFile.config.targetisOtherRoom
 let chatTarget = ''
 let connectChannel = []
 
-if (targetisOtherRoom && twitchRoomId) {
-    chatTarget = '#chatrooms:' + twitchChannelId + ':' + twitchRoomId
+if (twitchRoomId) {
     connectChannel.push(twitchChannel)
-    connectChannel.push('chatrooms:' + twitchChannelId + ':' + twitchRoomId)
+
+    if (targetisOtherRoom && twitchRoomId) {
+	chatTarget = '#chatrooms:' + twitchChannelId + ':' + twitchRoomId
+	connectChannel.push('chatrooms:' + twitchChannelId + ':' + twitchRoomId)
+    } else {
+	chatTarget = '#' + twitchChannel
+    }
 } else {
     chatTarget = '#' + twitchChannel
     connectChannel.push(twitchChannel)
@@ -107,6 +112,16 @@ if (!ignoreLine) {
 
 // setting up Google Cloud Translation API
 const googleTranslate = require('google-translate')(googleApiKey)
+
+// list categories for refresh
+const listcategory = [
+    'ignoreline',
+    'ignoreusers',
+    'emoticons'
+]
+
+// pre-compiled regex object for finding Japanese text
+const jpRe = /[\u30a0-\u30ff\u3040-\u309f\u3005-\u3006\u30e0-\u9fcf]/
 
 // JSON for cool down timer
 let coolDown = {}
@@ -242,19 +257,68 @@ function switchTarget(target, context, line) {
     return
 }
 
+function refreshList(category) {
+    let i = listcategory.indexOf(category)
+    let target = '#' + twitchChannel
+
+    switch (i) {
+	case 0:
+	    // ignoreline
+	    ignoreLine = ''
+	    ignoreLine = JSON.parse(fs.readFileSync(ignoreLineFile, 'utf8')).ignorelines
+
+	    if (!ignoreLine) {
+		logger.error("ERROR: can't reload " + ignoreLineFile)
+		client.say(target, "/me ERROR: can't reload ignoring line list")
+	    } else {
+		logger.info("ignoring user list has been reloaded from " + ignoreLineFile)
+		client.say(target, '/me ignoring line list has been reloaded from json file')
+	    }
+
+	    break
+
+	case 1:
+	    // ignoreusers
+	    ignoreUsers = ''
+	    ignoreUsers = JSON.parse(fs.readFileSync(iuJson, 'utf8')).ignoreusers
+
+	    if (!ignoreUsers) {
+		logger.error("ERROR: can't reload " + iuJson)
+		client.say(target, "/me ERROR: can't reload ignoring user list")
+	    } else {
+		logger.info("ignoring user list has been reloaded from " + iuJson)
+		client.say(target, '/me ignoring user list has been reloaded from json file')
+	    }
+
+	    break
+
+	case 2:
+	    // emoticons
+	    emotes = ''
+	    emotes = JSON.parse(fs.readFileSync(emoticonJson, 'utf8')).emoticons
+
+	    if (!emotes) {
+		logger.error("ERROR: can't reload " + emoticonJson)
+		client.say(target, "/me ERROR: can't reload emoticons user list")
+	    } else {
+		logger.info("emoticons list has been reloaded from " + emoticonJson)
+		client.say(target, '/me emoticons list has been reloaded from json file')
+	    }
+
+	    break
+
+	default:
+	    // error
+	    logger.error("ERROR: invalid category(refreshlist) [category] " + category)
+    }
+
+    return
+}
+
 function refreshIgnoreUser(target, context) {
     if (context.mod === false && context.username !== twitchChannel) { return }
 
-    ignoreUsers = ''
-    ignoreUsers = JSON.parse(fs.readFileSync(iuJson, 'utf8')).ignoreusers
-
-    if (!ignoreUsers) {
-	logger.error("ERROR: can't reload " + iuJson)
-	client.say(target, "/me ERROR: can't reload ignoring user list")
-    } else {
-	logger.info("ignoring user list has been reloaded from " + iuJson)
-	client.say(target, '/me ignoring user list has been reloaded from json file')
-    }
+    refreshList('ignoreusers')
 
     return
 }
@@ -262,16 +326,7 @@ function refreshIgnoreUser(target, context) {
 function refreshIgnoreLine(target, context) {
     if (context.mod === false && context.username !== twitchChannel) { return }
 
-    ignoreLine = ''
-    ignoreLine = JSON.parse(fs.readFileSync(ignoreLineFile, 'utf8')).ignorelines
-
-    if (!ignoreLine) {
-	logger.error("ERROR: can't reload " + ignoreLineFile)
-	client.say(target, "/me ERROR: can't reload ignoring line list")
-    } else {
-	logger.info("ignoring user list has been reloaded from " + ignoreLineFile)
-	client.say(target, '/me ignoring line list has been reloaded from json file')
-    }
+    refreshList('ignoreline')
 
     return
 }
@@ -279,16 +334,7 @@ function refreshIgnoreLine(target, context) {
 function refreshEmoticonsList(target, context) {
     if (context.mod === false && context.username !== twitchChannel) { return }
 
-    emotes = ''
-    emotes = JSON.parse(fs.readFileSync(emoticonJson, 'utf8')).emoticons
-
-    if (!emotes) {
-	logger.error("ERROR: can't reload " + emoticonJson)
-	client.say(target, "/me ERROR: can't reload emoticons user list")
-    } else {
-	logger.info("emoticons list has been reloaded from " + emoticonJson)
-	client.say(target, '/me emoticons list has been reloaded from json file')
-    }
+    refreshList('emoticons')
 
     return
 }
@@ -321,13 +367,13 @@ function removeEmoticons(line) {
 function translateMessage(target, context, line) {
     let toLang = 'ja'
 
-    if (line.match(/[\u30a0-\u30ff\u3040-\u309f\u3005-\u3006\u30e0-\u9fcf]/)) {
+    if (jpRe.exec(line)) {
 	toLang = 'en'
     } else {
 	toLang = 'ja'
     }
 
-//    logger.info('DEBUG: line [' + line + ']')
+//    logger.info('DEBUG: line [' + line + '] toLang [' + toLang + ']')
 
     googleTranslate.translate(line, toLang, function(err, translation) {
 	if (err) {
@@ -351,37 +397,7 @@ process.on('SIGINT', () => {
 process.on('SIGHUP', () => {
     logger.info('SIGHUP caught. refreshing database...')
 
-    ignoreUsers = ''
-    ignoreUsers = JSON.parse(fs.readFileSync(iuJson, 'utf8')).ignoreusers
-
-    if (!ignoreUsers) {
-	logger.error("ERROR: can't reload " + iuJson)
-	client.say('#' + twitchChannel, "/me ERROR: can't reload ignoring user list")
-    } else {
-	logger.info("ignoring user list has been reloaded from " + iuJson)
-	client.say('#' + twitchChannel, '/me ignoring user list has been reloaded from json file')
-    }
-
-
-    ignoreLine = ''
-    ignoreLine = JSON.parse(fs.readFileSync(ignoreLineFile, 'utf8')).ignorelines
-
-    if (!ignoreLine) {
-	logger.error("ERROR: can't reload " + ignoreLineFile)
-	client.say('#' + twitchChannel, "/me ERROR: can't reload ignoring line list")
-    } else {
-	logger.info("ignoring user list has been reloaded from " + ignoreLineFile)
-	client.say('#' + twitchChannel, '/me ignoring line list has been reloaded from json file')
-    }
-
-    emotes = ''
-    emotes = JSON.parse(fs.readFileSync(emoticonJson, 'utf8')).emoticons
-
-    if (!emotes) {
-	logger.error("ERROR: can't reload " + emoticonJson)
-	client.say('#' + twitchChannel, "/me ERROR: can't reload emoticons user list")
-    } else {
-	logger.info("emoticons list has been reloaded from " + emoticonJson)
-	client.say('#' + twitchChannel, '/me emoticons list has been reloaded from json file')
-    }
+    refreshList('ignoreusers')
+    refreshList('ignoreline')
+    refreshList('emoticons')
 })
