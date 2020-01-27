@@ -49,13 +49,6 @@ if (!twitchChannel) {
   process.exit(5)
 }
 
-const twitchChannelId = confFile.config.twitchChannelId
-
-if (!twitchChannelId) {
-  logger.error('twitch channel ID not provided')
-  process.exit(5)
-}
-
 const coolDownCount = confFile.config.coolDownCount
 
 if (!coolDownCount) {

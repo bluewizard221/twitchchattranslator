@@ -4,7 +4,6 @@
     "twitchUserName": 翻訳bot用のユーザー名（アルファベット）,
     "twitchOauth": 翻訳bot用ユーザーのOAuthトークン,
     "twitchChannel": 翻訳対象のチャンネル名（アルファベット）,
-    "twitchChannelId": 翻訳対象チャンネルのユーザーID（数値）,
     "targetisOtherRoom": 1or0,
     "twitchRoomId": 翻訳対象チャットルームのルームID,
     "googleApiKey": Google Cloud Translation APIのキー,
