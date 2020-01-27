@@ -1,5 +1,5 @@
 {
-  "name": "scarbot221",
+  "name": "twitchchattranslator",
   "version": "1.0.0",
   "description": "chatbot on Twitch.tv",
   "main": "scarbot.js",
@@ -9,13 +9,13 @@
   "author": "bluewizard221",
   "license": "MIT",
   "dependencies": {
-    "async": "^2.6.2",
-    "config": "^3.1.0",
+    "async": "^2.6.3",
+    "config": "^3.2.5",
     "fs": "0.0.1-security",
-    "google-translate": "^2.2.0",
-    "log4js": "^4.1.0",
+    "google-translate": "^2.3.0",
+    "log4js": "^4.5.1",
     "request": "^2.88.0",
-    "sync-request": "^6.1.0",
-    "tmi.js": "^1.4.2"
+    "request-promise-native": "^1.0.8",
+    "tmi.js": "^1.5.0"
   }
 }

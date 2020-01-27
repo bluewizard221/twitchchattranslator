@@ -7,7 +7,7 @@ const confFile = require('config')
 const log4js = require('log4js')
 
 log4js.configure({
-  appenders: { system: { type: 'dateFile', filename: 'logs/twitchchattranslator.log', pattern: "-yyyyMMdd", compress: true } },
+  appenders: { system: { type: 'dateFile', filename: 'logs/twitchchattranslator.log', pattern: "yyyyMMdd", compress: true } },
   categories: { default: { appenders: ['system'], level: 'debug' } }
 })
 
@@ -25,7 +25,7 @@ const googleApiKey = confFile.config.googleApiKey
 
 if (!googleApiKey) {
   logger.error('googleApiKey is not provided')
-  process.exit(1)
+  process.exit(2)
 }
 
 const twitchUserName = confFile.config.twitchUserName
@@ -60,28 +60,10 @@ const coolDownCount = confFile.config.coolDownCount
 
 if (!coolDownCount) {
   logger.error('max count for cool down timer not provided')
-  process.exit(5)
+  process.exit(6)
 }
 
-// setting up channel room and chat target
-const twitchRoomId = confFile.config.twitchRoomId
-const targetisOtherRoom = confFile.config.targetisOtherRoom
-let chatTarget = ''
-let connectChannel = []
-
-if (twitchRoomId) {
-    connectChannel.push(twitchChannel)
-
-    if (targetisOtherRoom && twitchRoomId) {
-	chatTarget = '#chatrooms:' + twitchChannelId + ':' + twitchRoomId
-	connectChannel.push('chatrooms:' + twitchChannelId + ':' + twitchRoomId)
-    } else {
-	chatTarget = '#' + twitchChannel
-    }
-} else {
-    chatTarget = '#' + twitchChannel
-    connectChannel.push(twitchChannel)
-}
+chatTarget = '#' + twitchChannel
 
 // setting up ignore users list
 const iuJson = './ignoreusers.json'
@@ -138,10 +120,14 @@ const ops = {
 	username: twitchUserName,
 	password: twitchOauth
     },
-    channels: connectChannel
+    connection: {
+	reconnect: true,
+	secure: true
+    },
+    channels: [ twitchChannel ]
 }
 
-const client = new tmi.client(ops)
+const client = new tmi.Client(ops)
 
 client.on('message', onMessageHandler)
 client.on('connected', onConnectedHandler)
@@ -165,9 +151,6 @@ function onMessageHandler(target, context, msg, self) {
 	return
     } else if (line === '!refreshemoticons') {
 	refreshEmoticonsList(target, context)
-	return
-    } else if (line.match(/^\!switchtarget/)) {
-	switchTarget(target, context, line)
 	return
     } else if (line.match(/^\!/)) {
 	return
@@ -229,32 +212,6 @@ function isIgnoreLine(line) {
     }
 
     return match
-}
-
-function switchTarget(target, context, line) {
-    if (context.mod === false && context.username !== twitchChannel) { return }
-
-    if (targetisOtherRoom === 0 || twitchRoomId == '') {
-	client.say(target, "/me you don't set any other room for me, so I don't do re-joining any other channel")
-	return
-    }
-
-    if (line.match(/^!switchtarget room$/)) {
-	chatTarget = '#chatrooms:' + twitchChannelId + ':' + twitchRoomId
-
-	logger.info("target switched: [" + twitchRoomId + "]")
-	client.say(target, "/me OK, I will put any translated messages on other channel what you specified")
-    } else if (line.match(/^!switchtarget main$/)) {
-	chatTarget = '#' + twitchChannel
-
-	logger.info("target switched: [" + twitchChannel + "]")
-	client.say(target, "OK, I will put any translated messages on main chat room")
-    } else {
-	logger.info("wrong command: [" + line + "]")
-	client.say(target, "/me Usage: !switchtarget (room|main)")
-    }
-
-    return
 }
 
 function refreshList(category) {
@@ -379,7 +336,7 @@ function translateMessage(target, context, line) {
 	if (err) {
 	    logger.info(err)
 	} else {
-	    client.say(target, '/me ' + translation.translatedText + ' ([' + translation.detectedSourceLanguage + '] => [' + toLang + '])')
+	    client.say(target, '/me ' + translation.translatedText + ' (source lang: ' + translation.detectedSourceLanguage + ')')
 	}
     })
 }
