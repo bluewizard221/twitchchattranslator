@@ -22,7 +22,7 @@ Twitchのチャットに書かれた文章を翻訳します。日本語が否�
   FreeBSD 11.2-RELEASE上のnode v10.15.3にて動作を確認出来ています。
 * 必要モジュール
 
-  tmi.js, request, fs, config, log4js, sync-request, google-translate
+  tmi.js, request, fs, config, log4js, request-promise-native, google-translate
 
 
 ## 使用手順
