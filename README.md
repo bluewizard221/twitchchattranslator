@@ -36,7 +36,7 @@ Twitchのチャットに書かれた文章を翻訳します。日本語が否�
 
 5. 上記必要モジュールをサーバにインストールします。
 
-6. config/default.jsonに適当な値を入力します。twitchChannelId, twitchRoomId は付属の getchannelid.js で取得が可能です（後述）。
+6. config/default.jsonに適当な値を入力します。
 
 <dl>
 <dt>pidFile</dt>
@@ -47,12 +47,6 @@ Twitchのチャットに書かれた文章を翻訳します。日本語が否�
   <dd>翻訳botとして利用するユーザーのOAuthトークンを設定します。</dd>
 <dt>twitchChannel</dt>
   <dd>翻訳botを走らせたいチャンネル名を設定します。（表示名でなくアルファベットの方）</dd>
-<dt>twitchChannelId</dt>
-  <dd>twitch APIで取得出来るユーザーID（数値）を設定します。</dd>
-<dt>targetisOtherRoom</dt>
-  <dd>翻訳文を別のチャットルームに書くかどうかを設定します。1なら他のルームに書き、0ならメインの部屋に書きます。</dd>
-<dt>twitchRoomId</dt>
-  <dd>翻訳文を書くチャットルームのルームIDを設定します。</dd>
 <dt>googleApiKey</dt>
   <dd>Google Cloud Translation APIのキーを設定します。</dd>
 <dt>coolDownCount</dt>
@@ -63,33 +57,6 @@ Twitchのチャットに書かれた文章を翻訳します。日本語が否�
 ex)
 ```bash
 (./twitchchattranslator.js) &
-```
-
-
-## twitchChannelId, twitchRoomId の取得について
-* 設定項目に記載する twitchChannelId と twitchRoomId は付属の getchannelid.js を利用することで取得することが可能です。以下に利用例を示します。
-* getchannelid.js は config/jsonupdate.json を設定ファイルとして利用します。
-
-config/jsonupdate.jsonについて：
-
-<dl>
-<dt>twitchClientId</dt>
-  <dd>翻訳botのアプリ用のクライアントIDを設定します。dev.twitch.tv で取得したものです。</dd>
-<dt>twitchChannel</dt>
-  <dd>翻訳botを走らせたいチャンネル名を設定します。（表示名でなくアルファベットの方）</dd>
-<dt>oauthToken</dt>
-  <dd>翻訳botのアプリ用OAuthトークンを設定します。twitchapps.com/tokengen/ で取得したものです。</dd>
-</dl>
-
-```bash
-NODE_ENV=jsonupdate ./getchannelid.js 翻訳botを利用するチャンネル名 翻訳文を書くチャットルーム名
-```
-
-利用例：
-```bash
-# NODE_ENV=jsonupdate ./getchannelid.js bwscar221 translationroom
-ID: 108005602
-Room-ID: 3efb5e2c-df73-460f-822e-ede65ae87ee7
 ```
 
 
