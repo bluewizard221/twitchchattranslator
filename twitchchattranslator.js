@@ -170,16 +170,16 @@ function isSpammingUser(target, context) {
     }
 
     if (coolDown[username]) {
-	if (coolDown[username].count >= coolDownCount) {
-	    logger.info("user [" + context.username + "] exceeded cool down threshold value")
-	    return 1
-	}
-
 	if ((now - coolDown[username].latest) <= 60000) {
 	    coolDown[username].count++
 	} else {
 	    coolDown[username].count = 1
 	    coolDown[username].latest = now
+	}
+
+	if (coolDown[username].count >= coolDownCount) {
+	    logger.info("user [" + context.username + "] exceeded cool down threshold value")
+	    return 1
 	}
     } else {
 	coolDown[username] = {}
