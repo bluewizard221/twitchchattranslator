@@ -15,15 +15,22 @@ const logger = log4js.getLogger('system')
 const clientId = confFile.config.twitchClientId
 
 if (!clientId) {
-  logger.error('Twitch Client ID not provided')
+  logger.error('Twitch Client ID is not provided')
   process.exit(1)
 }
 
 const twitchChannel = confFile.config.twitchChannel
 
 if (!twitchChannel) {
-  logger.error('Twitch Channel name not provided')
-  process.exit(1)
+  logger.error('Twitch Channel name is not provided')
+  process.exit(2)
+}
+
+const twitchUserId = confFile.config.twitchUserId
+
+if (!twitchUserId) {
+  logger.error('Twitch User ID is not provided')
+  process.exit(3)
 }
 
 const emoticonFile = './emoticons.json'
@@ -31,15 +38,38 @@ const emoticonFile = './emoticons.json'
 let result
 var emoticons = [];
 
-reqp({uri:'https://api.betterttv.net/2/emotes', json:true})
+reqp({uri:'https://api.betterttv.net/3/cached/emotes/global', json:true})
     .then((body)=>{
-	let i = body.emotes.length;
+	let i = body.length
 
 	while (i--) {
-	    emoticons.push(body.emotes[i].code);
+	    emoticons.push(body[i].code)
 	}
 
 	logger.info('BTTV emoticons(global) list updated')
+    })
+    .then(()=>{
+        reqp({uri:'https://api.betterttv.net/3/cached/users/twitch/' + twitchUserId, json:true})
+            .then((body)=>{
+                let i = body.channelEmotes.length;
+
+                while (i--) {
+                    emoticons.push(body.channelEmotes[i].code)
+                }
+
+                logger.info('BTTV emoticons(channel) list updated')
+
+                i = body.sharedEmotes.length;
+
+                while (i--) {
+                    emoticons.push(body.sharedEmotes[i].code)
+                }
+
+                logger.info('BTTV emoticons(shared) list updated')
+            })
+            .catch((err)=>{
+                logger.error(err)
+            });
     })
     .then(()=>{
 	reqp({uri:'https://api.frankerfacez.com/v1/room/' + twitchChannel, json:true})
