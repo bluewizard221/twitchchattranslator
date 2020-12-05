@@ -101,7 +101,7 @@ const jpRe = /[\u30a0-\u30ff\u3040-\u309f\u3005-\u3006\u30e0-\u9fcf]/
 // JSON for cool down timer
 let coolDown = {}
 
-fs.writeFile(pidFile, process.pid, (err) => {
+fs.writeFile(pidFile, process.pid.toString(), (err) => {
   if (err) {
     logger.error(err)
   }
