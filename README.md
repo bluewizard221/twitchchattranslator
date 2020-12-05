@@ -19,7 +19,7 @@ Twitchのチャットに書かれた文章を翻訳します。日本語が否�
 
 * 動作確認済み環境
 
-  FreeBSD 11.2-RELEASE上のnode v10.15.3にて動作を確認出来ています。
+  FreeBSD 11.2-RELEASE上のnode v15.3.0にて動作を確認出来ています。
 * 必要モジュール
 
   tmi.js, request, fs, config, log4js, request-promise-native, google-translate
@@ -47,6 +47,8 @@ Twitchのチャットに書かれた文章を翻訳します。日本語が否�
   <dd>翻訳botとして利用するユーザーのOAuthトークンを設定します。</dd>
 <dt>twitchChannel</dt>
   <dd>翻訳botを走らせたいチャンネル名を設定します。（表示名でなくアルファベットの方）</dd>
+<dt>twitchUserId</dt>
+  <dd>翻訳botを走らせたいチャンネルのID（数値）を設定します。</dd>
 <dt>googleApiKey</dt>
   <dd>Google Cloud Translation APIのキーを設定します。</dd>
 <dt>coolDownCount</dt>
