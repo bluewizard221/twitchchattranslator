@@ -19,10 +19,10 @@ Twitchのチャットに書かれた文章を翻訳します。日本語が否�
 
 * 動作確認済み環境
 
-  FreeBSD 11.2-RELEASE上のnode v15.3.0にて動作を確認出来ています。
+  FreeBSD 12.2-RELEASE上のnode v16.10.0にて動作を確認出来ています。
 * 必要モジュール
 
-  tmi.js, request, fs, config, log4js, request-promise-native, google-translate
+  tmi.js, fs, config, log4js, @google-cloud/translate, got
 
 
 ## 使用手順
@@ -32,7 +32,7 @@ Twitchのチャットに書かれた文章を翻訳します。日本語が否�
 
 3. 翻訳botを利用するユーザーのOAuthトークンを https://twitchapps.com/tmi/ から取得します。
 
-4. Google Cloud Translate APIキーを Google Cloud Platform 経由で取得します。
+4. https://cloud.google.com/translate/docs/setup?hl=ja を参考にしてサービス・アカウント・キーとなるJSONキーファイルを取得します。
 
 5. 上記必要モジュールをサーバにインストールします。
 
@@ -41,16 +41,16 @@ Twitchのチャットに書かれた文章を翻訳します。日本語が否�
 <dl>
 <dt>pidFile</dt>
   <dd>プロセスIDを記入するファイルのファイルパスを設定します。</dd>
+<dt>googleProjectId</dt>
+  <dd>Google CloudのプロジェクトIDを設定します。</dd>
+<dt>googleKeyFile</dt>
+  <dd>Google Cloudのサービス・アカウント・キーJSONファイルのファイルパスを設定します。</dd>
 <dt>twitchUserName</dt>
   <dd>翻訳botとして利用するユーザーのユーザー名を設定します。</dd>
 <dt>twitchOauth</dt>
   <dd>翻訳botとして利用するユーザーのOAuthトークンを設定します。</dd>
 <dt>twitchChannel</dt>
   <dd>翻訳botを走らせたいチャンネル名を設定します。（表示名でなくアルファベットの方）</dd>
-<dt>twitchUserId</dt>
-  <dd>翻訳botを走らせたいチャンネルのID（数値）を設定します。</dd>
-<dt>googleApiKey</dt>
-  <dd>Google Cloud Translation APIのキーを設定します。</dd>
 <dt>coolDownCount</dt>
   <dd>同一ユーザーから1分間の間に受け付ける最大翻訳回数を設定します。ここに設定した数値までを翻訳します。</dd>
 </dl>
@@ -63,19 +63,17 @@ ex)
 
 
 ## エモートについて
-* エモートの一覧はルートディレクトリ内の emoticons.json に格納されています。コミットされているファイルには twitch の全エモート, FrankerFaceZ・Better TTV のグローバルエモートが格納されていますが、付属の emotelistupdate.js を利用することで FFZのチャンネルエモートも登録することが可能です。
+* エモートの一覧はルートディレクトリ内の emoticons.json に格納されています。コミットされているファイルには FrankerFaceZ・Better TTV のグローバルエモートが格納されていますが、付属の emotelistupdate.js を利用することで FFZのチャンネルエモートも登録することが可能です。
 * emotelistupdate.js は既存の emoticons.json を上書きします。
 * emotelistupdate.js は config/jsonupdate.json を設定ファイルとして利用します。
 
 config/jsonupdate.jsonについて：
 
 <dl>
-<dt>twitchClientId</dt>
-  <dd>翻訳botのアプリ用のクライアントIDを設定します。dev.twitch.tv で取得したものです。</dd>
 <dt>twitchChannel</dt>
   <dd>翻訳botを走らせたいチャンネル名を設定します。（表示名でなくアルファベットの方）</dd>
-<dt>oauthToken</dt>
-  <dd>翻訳botのアプリ用OAuthトークンを設定します。twitchapps.com/tokengen/ で取得したものです。</dd>
+<dt>twitchUserId</dt>
+  <dd>翻訳botとして利用するユーザーのユーザーIDを設定します。（数値）</dd>
 </dl>
 
 設定を書き換えたら、以下のようにスクリプトを実行して emoticons.json を更新します。
@@ -121,8 +119,6 @@ ignoreusers.json:
   <dd>ignoreline.json を更新後実行することでbotに変更を反映させます。モデレーターと配信者のみが利用出来ます。</dd>
 <dt>!refreshemoticons</dt>
   <dd>emoticons.json を更新後実行することでbotに変更を反映させます。モデレーターと配信者のみが利用出来ます。</dd>
-<dt>!switchtarget (main|room)</dt>
-  <dd>翻訳bot が翻訳文を書く部屋を指定出来ます。mainはデフォルトの部屋、roomは設定で指定した部屋に書かれます。 targetisOtherRoom を1として設定している時のみ動作します。</dd>
 </dl>
 
 
