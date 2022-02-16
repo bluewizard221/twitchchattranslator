@@ -8,7 +8,7 @@
     "config": "^3.3.6",
     "fs": "0.0.1-security",
     "got": "^11.8.2",
-    "log4js": "^6.3.0",
+    "log4js": "^6.4.0",
     "tmi.js": "^1.8.5"
   },
   "devDependencies": {},
