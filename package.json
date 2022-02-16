@@ -7,13 +7,8 @@
     "@google-cloud/translate": "^6.3.1",
     "config": "^3.3.7",
     "fs": "0.0.1-security",
-<<<<<<< HEAD
     "got": "^11.8.3",
     "log4js": "^6.4.1",
-=======
-    "got": "^11.8.2",
-    "log4js": "^6.4.0",
->>>>>>> eee77f600f1522563b1798a33a9001913cb91b97
     "tmi.js": "^1.8.5"
   },
   "devDependencies": {},
