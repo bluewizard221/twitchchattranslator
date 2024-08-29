@@ -4,11 +4,11 @@
   "description": "twitch chat translator",
   "main": "twitchchattranslator.js",
   "dependencies": {
-    "@google-cloud/translate": "^6.3.1",
-    "config": "^3.3.7",
+    "@google-cloud/translate": "^8.5.0",
+    "config": "^3.3.12",
     "fs": "0.0.1-security",
-    "got": "^11.8.3",
-    "log4js": "^6.4.1",
+    "got": "^14.4.2",
+    "log4js": "^6.9.1",
     "tmi.js": "^1.8.5"
   },
   "devDependencies": {},
