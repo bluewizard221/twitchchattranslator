@@ -1,11 +1,15 @@
 {
   "config": {
-    "pidFile": 設置するpidファイルのファイルパス,
-    "googleProjectId": Google Cloud TranslationのプロジェクトID,
-    "googleKeyFile": Google Cloudのサービス・アカウント・キーJSONファイルのファイルパス,
-    "twitchUserName": 翻訳bot用のユーザー名（アルファベット）,
-    "twitchOauth": 翻訳bot用ユーザーのOAuthトークン,
-    "twitchChannel": 翻訳対象のチャンネル名（アルファベット）,
-    "coolDownCount": 同一ユーザーから1分間の間に受け付ける最大翻訳回数
+    "pidFile": "設置するpidファイルのファイルパス",
+    "googleProjectId": "Google Cloud TranslationのプロジェクトID",
+    "googleKeyFile": "Google Cloudのサービス・アカウント・キーJSONファイルのファイルパス",
+    "twitchUserName": "翻訳bot用のユーザー名（アルファベット）",
+    "twitchOauth": "翻訳bot用ユーザーのOAuthトークン",
+    "twitchChannel": "翻訳対象のチャンネル名（アルファベット）",
+    "twitchClientId": "Twitch Dev ConsoleのClient ID",
+    "twitchClientSecret": "Twitch Dev ConsoleのClient Secret",
+    "twitchBotUserId": "翻訳botユーザーの数値ID",
+    "twitchBroadcasterId": "配信者の数値ID",
+    "coolDownCount": 5
   }
 }

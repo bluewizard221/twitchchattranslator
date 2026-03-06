@@ -48,6 +48,122 @@ if (!confFile.config.coolDownCount) {
   process.exit(6);
 }
 
+if (!confFile.config.twitchClientId) {
+  logger.error('twitch client_id not provided');
+  process.exit(7);
+}
+
+if (!confFile.config.twitchClientSecret) {
+  logger.error('twitch client_secret not provided');
+  process.exit(8);
+}
+
+if (!confFile.config.twitchBotUserId) {
+  logger.error('twitch bot user_id not provided');
+  process.exit(9);
+}
+
+if (!confFile.config.twitchBroadcasterId) {
+  logger.error('twitch broadcaster_id not provided');
+  process.exit(10);
+}
+
+// ============================================================
+// Twitch Helix API - App Access Token management & chat sender
+// Required for Chat Bot Badge display
+// ============================================================
+
+let appAccessToken = null;
+let tokenExpiresAt = 0;
+
+async function getAppAccessToken() {
+    const now = Date.now();
+
+    // Reuse token if still valid (with 5 min buffer)
+    if (appAccessToken && now < tokenExpiresAt - 300000) {
+	return appAccessToken;
+    }
+
+    logger.info('Requesting new App Access Token...');
+
+    const params = new URLSearchParams({
+	client_id: confFile.config.twitchClientId,
+	client_secret: confFile.config.twitchClientSecret,
+	grant_type: 'client_credentials'
+    });
+
+    const res = await fetch('https://id.twitch.tv/oauth2/token', {
+	method: 'POST',
+	body: params
+    });
+
+    if (!res.ok) {
+	const body = await res.text();
+	logger.error('Failed to get App Access Token: ' + res.status + ' ' + body);
+	throw new Error('App Access Token request failed');
+    }
+
+    const data = await res.json();
+    appAccessToken = data.access_token;
+    tokenExpiresAt = now + (data.expires_in * 1000);
+    logger.info('App Access Token obtained, expires in ' + data.expires_in + 's');
+
+    return appAccessToken;
+}
+
+async function helixSendMessage(message) {
+    try {
+	const token = await getAppAccessToken();
+
+	const res = await fetch('https://api.twitch.tv/helix/chat/messages', {
+	    method: 'POST',
+	    headers: {
+		'Authorization': 'Bearer ' + token,
+		'Client-Id': confFile.config.twitchClientId,
+		'Content-Type': 'application/json'
+	    },
+	    body: JSON.stringify({
+		broadcaster_id: confFile.config.twitchBroadcasterId,
+		sender_id: confFile.config.twitchBotUserId,
+		message: message
+	    })
+	});
+
+	if (!res.ok) {
+	    const body = await res.text();
+	    logger.error('Helix send message failed: ' + res.status + ' ' + body);
+
+	    // Token may be invalid, reset it
+	    if (res.status === 401) {
+		appAccessToken = null;
+		tokenExpiresAt = 0;
+	    }
+	    return false;
+	}
+
+	const data = await res.json();
+	if (data.data && data.data[0] && data.data[0].is_sent) {
+	    logger.debug('Helix message sent successfully');
+	} else {
+	    logger.warn('Helix message may not have been sent: ' + JSON.stringify(data));
+	}
+	return true;
+    } catch (err) {
+	logger.error('Helix send message error: ' + err.message);
+	return false;
+    }
+}
+
+// Wrapper: send chat message via Helix API (for bot badge)
+// Falls back to tmi.js IRC if Helix fails
+async function sendChatMessage(target, message) {
+    const sent = await helixSendMessage(message);
+    if (!sent) {
+	logger.warn('Helix API failed, falling back to IRC');
+	client.say(target, message);
+    }
+}
+
 chatTarget = '#' + confFile.config.twitchChannel;
 
 // setting up ignore users list
@@ -216,10 +332,10 @@ function refreshList(category) {
 
 	    if (!ignoreLine) {
 		logger.error("ERROR: can't reload " + ignoreLineFile);
-		client.say(target, "/me ERROR: can't reload ignoring line list");
+		sendChatMessage(target, "ERROR: can't reload ignoring line list");
 	    } else {
 		logger.info("ignoring user list has been reloaded from " + ignoreLineFile);
-		client.say(target, '/me ignoring line list has been reloaded from json file');
+		sendChatMessage(target, 'ignoring line list has been reloaded from json file');
 	    }
 
 	    break;
@@ -231,10 +347,10 @@ function refreshList(category) {
 
 	    if (!ignoreUsers) {
 		logger.error("ERROR: can't reload " + iuJson);
-		client.say(target, "/me ERROR: can't reload ignoring user list");
+		sendChatMessage(target, "ERROR: can't reload ignoring user list");
 	    } else {
 		logger.info("ignoring user list has been reloaded from " + iuJson);
-		client.say(target, '/me ignoring user list has been reloaded from json file');
+		sendChatMessage(target, 'ignoring user list has been reloaded from json file');
 	    }
 
 	    break;
@@ -246,10 +362,10 @@ function refreshList(category) {
 
 	     if (!emotes) {
 		logger.error("ERROR: can't reload " + emoticonJson);
-		client.say(target, "/me ERROR: can't reload emoticons user list");
+		sendChatMessage(target, "ERROR: can't reload emoticons user list");
 	    } else {
 		logger.info("emoticons list has been reloaded from " + emoticonJson);
-		client.say(target, '/me emoticons list has been reloaded from json file');
+		sendChatMessage(target, 'emoticons list has been reloaded from json file');
 	     }
 
 	    break;
@@ -376,7 +492,7 @@ async function translateMessage(target, context, line) {
     translations = Array.isArray(translations) ? translations : [translations];
 
     translations.forEach((translation, i) => {
-	client.say(target, '/me ' + translation + '(source lang: ' + fromLang + ')');
+	sendChatMessage(chatTarget, translation + ' (source lang: ' + fromLang + ')');
     });
 }
 
