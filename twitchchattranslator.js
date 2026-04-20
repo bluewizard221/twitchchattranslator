@@ -68,6 +68,16 @@ if (!confFile.config.twitchBroadcasterId) {
   process.exit(10);
 }
 
+if (!confFile.config.twitchBotUserAccessToken) {
+  logger.error('twitch bot user access token not provided');
+  process.exit(11);
+}
+
+if (!confFile.config.twitchBotRefreshToken) {
+  logger.error('twitch bot refresh token not provided');
+  process.exit(12);
+}
+
 // ============================================================
 // Twitch Helix API - App Access Token management & chat sender
 // Required for Chat Bot Badge display
@@ -138,31 +148,260 @@ async function helixSendMessage(message) {
 		appAccessToken = null;
 		tokenExpiresAt = 0;
 	    }
-	    return false;
+	    return { sent: false, messageId: null };
 	}
 
 	const data = await res.json();
 	if (data.data && data.data[0] && data.data[0].is_sent) {
-	    logger.debug('Helix message sent successfully');
+	    logger.debug('Helix message sent successfully, id: ' + data.data[0].message_id);
+	    return { sent: true, messageId: data.data[0].message_id };
 	} else {
 	    logger.warn('Helix message may not have been sent: ' + JSON.stringify(data));
+	    return { sent: false, messageId: null };
 	}
-	return true;
     } catch (err) {
 	logger.error('Helix send message error: ' + err.message);
-	return false;
+	return { sent: false, messageId: null };
     }
 }
 
 // Wrapper: send chat message via Helix API (for bot badge)
 // Falls back to tmi.js IRC if Helix fails
-async function sendChatMessage(target, message) {
-    const sent = await helixSendMessage(message);
-    if (!sent) {
+// Tracks message pair for auto-deletion
+async function sendChatMessage(target, message, originalMsgId, originalUsername) {
+    const result = await helixSendMessage(message);
+    if (result.sent) {
+	if (originalMsgId && result.messageId) {
+	    messageMap.set(originalMsgId, {
+		botMsgId: result.messageId,
+		username: originalUsername || '',
+		timestamp: Date.now()
+	    });
+	    logger.debug('Message mapping stored: ' + originalMsgId + ' -> ' + result.messageId);
+	}
+    } else {
 	logger.warn('Helix API failed, falling back to IRC');
 	client.say(target, message);
     }
 }
+
+// ============================================================
+// Bot User Access Token management (for message deletion)
+// Requires moderator:manage:chat_messages scope
+// ============================================================
+
+let botUserAccessToken = confFile.config.twitchBotUserAccessToken;
+let botUserRefreshToken = confFile.config.twitchBotRefreshToken;
+let botUserTokenExpiresAt = 0;
+const TOKEN_FILE = './config/tokens.json';
+
+function loadBotTokens() {
+    try {
+	if (fs.existsSync(TOKEN_FILE)) {
+	    const tokens = JSON.parse(fs.readFileSync(TOKEN_FILE, 'utf8'));
+	    botUserAccessToken = tokens.accessToken || botUserAccessToken;
+	    botUserRefreshToken = tokens.refreshToken || botUserRefreshToken;
+	    botUserTokenExpiresAt = tokens.expiresAt || 0;
+	    logger.info('Bot tokens loaded from ' + TOKEN_FILE);
+	}
+    } catch (err) {
+	logger.warn('Failed to load bot tokens from file: ' + err.message);
+    }
+}
+
+function saveBotTokens() {
+    try {
+	fs.writeFileSync(TOKEN_FILE, JSON.stringify({
+	    accessToken: botUserAccessToken,
+	    refreshToken: botUserRefreshToken,
+	    expiresAt: botUserTokenExpiresAt
+	}, null, 2));
+	logger.debug('Bot tokens saved to ' + TOKEN_FILE);
+    } catch (err) {
+	logger.error('Failed to save bot tokens: ' + err.message);
+    }
+}
+
+async function refreshBotUserAccessToken() {
+    logger.info('Refreshing Bot User Access Token...');
+
+    const params = new URLSearchParams({
+	client_id: confFile.config.twitchClientId,
+	client_secret: confFile.config.twitchClientSecret,
+	grant_type: 'refresh_token',
+	refresh_token: botUserRefreshToken
+    });
+
+    const res = await fetch('https://id.twitch.tv/oauth2/token', {
+	method: 'POST',
+	body: params
+    });
+
+    if (!res.ok) {
+	const body = await res.text();
+	logger.error('Failed to refresh Bot User Access Token: ' + res.status + ' ' + body);
+	throw new Error('Bot User Access Token refresh failed');
+    }
+
+    const data = await res.json();
+    botUserAccessToken = data.access_token;
+    botUserRefreshToken = data.refresh_token;
+    botUserTokenExpiresAt = Date.now() + (data.expires_in * 1000);
+    logger.info('Bot User Access Token refreshed, expires in ' + data.expires_in + 's');
+
+    saveBotTokens();
+
+    return botUserAccessToken;
+}
+
+async function getBotUserAccessToken() {
+    const now = Date.now();
+
+    // Known expiry and still valid
+    if (botUserAccessToken && botUserTokenExpiresAt > 0 && now < botUserTokenExpiresAt - 300000) {
+	return botUserAccessToken;
+    }
+
+    // First run — token from config, expiry unknown — use it as-is
+    if (botUserAccessToken && botUserTokenExpiresAt === 0) {
+	return botUserAccessToken;
+    }
+
+    // Expired — refresh
+    return await refreshBotUserAccessToken();
+}
+
+loadBotTokens();
+
+// ============================================================
+// Message tracking for auto-deletion
+// Maps original message ID -> { botMsgId, username, timestamp }
+// ============================================================
+
+const messageMap = new Map();
+const MESSAGE_MAP_TTL = 6 * 60 * 60 * 1000; // 6 hours (Twitch API limit for deletion)
+
+function cleanupMessageMap() {
+    const now = Date.now();
+    let cleaned = 0;
+
+    for (const [key, value] of messageMap) {
+	if (now - value.timestamp > MESSAGE_MAP_TTL) {
+	    messageMap.delete(key);
+	    cleaned++;
+	}
+    }
+
+    if (cleaned > 0) {
+	logger.info('Message map cleanup: removed ' + cleaned + ' expired entries, ' + messageMap.size + ' remaining');
+    }
+}
+
+// Cleanup every 30 minutes
+setInterval(cleanupMessageMap, 30 * 60 * 1000);
+
+// ============================================================
+// Helix API - Delete chat message
+// ============================================================
+
+async function helixDeleteMessage(messageId) {
+    try {
+	let token = await getBotUserAccessToken();
+
+	let res = await fetch(
+	    'https://api.twitch.tv/helix/moderation/chat?broadcaster_id=' +
+	    confFile.config.twitchBroadcasterId +
+	    '&moderator_id=' + confFile.config.twitchBotUserId +
+	    '&message_id=' + messageId,
+	    {
+		method: 'DELETE',
+		headers: {
+		    'Authorization': 'Bearer ' + token,
+		    'Client-Id': confFile.config.twitchClientId
+		}
+	    }
+	);
+
+	// Token expired — refresh and retry once
+	if (res.status === 401) {
+	    logger.info('Bot User Access Token expired, refreshing...');
+	    token = await refreshBotUserAccessToken();
+
+	    res = await fetch(
+		'https://api.twitch.tv/helix/moderation/chat?broadcaster_id=' +
+		confFile.config.twitchBroadcasterId +
+		'&moderator_id=' + confFile.config.twitchBotUserId +
+		'&message_id=' + messageId,
+		{
+		    method: 'DELETE',
+		    headers: {
+			'Authorization': 'Bearer ' + token,
+			'Client-Id': confFile.config.twitchClientId
+		    }
+		}
+	    );
+	}
+
+	if (res.status === 204) {
+	    logger.info('Successfully deleted bot message: ' + messageId);
+	    return true;
+	} else {
+	    const body = await res.text();
+	    logger.error('Failed to delete message ' + messageId + ': ' + res.status + ' ' + body);
+	    return false;
+	}
+    } catch (err) {
+	logger.error('helixDeleteMessage error: ' + err.message);
+	return false;
+    }
+}
+
+// ============================================================
+// Event handlers for message deletion / timeout / ban
+// ============================================================
+
+function onMessageDeletedHandler(channel, username, deletedMessage, userstate) {
+    const deletedMsgId = userstate['target-msg-id'];
+
+    if (!deletedMsgId) { return; }
+
+    const mapping = messageMap.get(deletedMsgId);
+
+    if (mapping) {
+	logger.info('Original message deleted [' + deletedMsgId + '], deleting translation [' + mapping.botMsgId + ']');
+	helixDeleteMessage(mapping.botMsgId);
+	messageMap.delete(deletedMsgId);
+    }
+}
+
+function onTimeoutHandler(channel, username, reason, duration, userstate) {
+    deleteAllTranslationsForUser(username, 'timeout (' + duration + 's)');
+}
+
+function onBanHandler(channel, username, reason, userstate) {
+    deleteAllTranslationsForUser(username, 'ban');
+}
+
+function deleteAllTranslationsForUser(username, action) {
+    let count = 0;
+
+    for (const [originalMsgId, mapping] of messageMap) {
+	if (mapping.username === username) {
+	    logger.info('User ' + action + ' [' + username + '], deleting translation [' + mapping.botMsgId + ']');
+	    helixDeleteMessage(mapping.botMsgId);
+	    messageMap.delete(originalMsgId);
+	    count++;
+	}
+    }
+
+    if (count > 0) {
+	logger.info('Deleted ' + count + ' translation(s) for user [' + username + '] due to ' + action);
+    }
+}
+
+// ============================================================
+// Main application
+// ============================================================
 
 chatTarget = '#' + confFile.config.twitchChannel;
 
@@ -235,6 +474,9 @@ const client = new tmi.Client(ops);
 
 client.on('message', onMessageHandler);
 client.on('connected', onConnectedHandler);
+client.on('messagedeleted', onMessageDeletedHandler);
+client.on('timeout', onTimeoutHandler);
+client.on('ban', onBanHandler);
 
 client.connect();
 
@@ -492,7 +734,7 @@ async function translateMessage(target, context, line) {
     translations = Array.isArray(translations) ? translations : [translations];
 
     translations.forEach((translation, i) => {
-	sendChatMessage(chatTarget, translation + ' (source lang: ' + fromLang + ')');
+	sendChatMessage(chatTarget, translation + ' (source lang: ' + fromLang + ')', context.id, context.username);
     });
 }
 

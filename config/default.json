@@ -10,6 +10,8 @@
     "twitchClientSecret": "Twitch Dev ConsoleのClient Secret",
     "twitchBotUserId": "翻訳botユーザーの数値ID",
     "twitchBroadcasterId": "配信者の数値ID",
+    "twitchBotUserAccessToken": "翻訳botのUser Access Token",
+    "twitchBotRefreshToken": "翻訳botのRefresh Token",
     "coolDownCount": 5
   }
 }
