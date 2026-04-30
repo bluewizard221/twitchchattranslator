@@ -571,13 +571,13 @@ function refreshList(category) {
 	    // ignoreline
 	    ignoreLine = '';
 	    ignoreLine = JSON.parse(fs.readFileSync(ignoreLineFile, 'utf8')).ignorelines;
-
+	
 	    if (!ignoreLine) {
 		logger.error("ERROR: can't reload " + ignoreLineFile);
-		sendChatMessage(target, "ERROR: can't reload ignoring line list");
+	    //	sendChatMessage(target, "ERROR: can't reload ignoring line list");
 	    } else {
 		logger.info("ignoring user list has been reloaded from " + ignoreLineFile);
-		sendChatMessage(target, 'ignoring line list has been reloaded from json file');
+	    //	sendChatMessage(target, 'ignoring line list has been reloaded from json file');
 	    }
 
 	    break;
@@ -589,10 +589,10 @@ function refreshList(category) {
 
 	    if (!ignoreUsers) {
 		logger.error("ERROR: can't reload " + iuJson);
-		sendChatMessage(target, "ERROR: can't reload ignoring user list");
+	    //	sendChatMessage(target, "ERROR: can't reload ignoring user list");
 	    } else {
 		logger.info("ignoring user list has been reloaded from " + iuJson);
-		sendChatMessage(target, 'ignoring user list has been reloaded from json file');
+	    //	sendChatMessage(target, 'ignoring user list has been reloaded from json file');
 	    }
 
 	    break;
@@ -602,13 +602,13 @@ function refreshList(category) {
 	    emotes = '';
 	    emotes = JSON.parse(fs.readFileSync(emoticonJson, 'utf8')).emoticons;
 
-	     if (!emotes) {
+	    if (!emotes) {
 		logger.error("ERROR: can't reload " + emoticonJson);
-		sendChatMessage(target, "ERROR: can't reload emoticons user list");
+	    //	sendChatMessage(target, "ERROR: can't reload emoticons user list");
 	    } else {
-		logger.info("emoticons list has been reloaded from " + emoticonJson);
-		sendChatMessage(target, 'emoticons list has been reloaded from json file');
-	     }
+		logger.info("ignoring user list has been reloaded from " + emoticonJson);
+	    //	sendChatMessage(target, 'emoticons list has been reloaded from json file');
+	    }
 
 	    break;
 
