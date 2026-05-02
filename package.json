@@ -4,7 +4,7 @@
   "description": "twitch chat translator",
   "main": "twitchchattranslator.js",
   "dependencies": {
-    "@google-cloud/translate": "^8.5.0",
+    "@google-cloud/translate": "^9.4.1",
     "config": "^3.3.12",
     "fs": "0.0.1-security",
     "got": "^14.4.2",
