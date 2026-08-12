@@ -3,17 +3,23 @@
   "version": "1.0.0",
   "description": "twitch chat translator",
   "main": "twitchchattranslator.js",
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
     "@google-cloud/translate": "^9.4.1",
     "config": "^3.3.12",
+    "express": "^5.2.1",
+    "express-session": "^1.19.0",
     "fs": "0.0.1-security",
-    "got": "^14.4.2",
     "log4js": "^6.9.1",
     "tmi.js": "^1.8.5"
   },
-  "devDependencies": {},
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node twitchchattranslator.js",
+    "web": "node web/server.js",
+    "emotes": "NODE_ENV=jsonupdate node emotelistupdate.js",
+    "test": "node --test test/*.test.js"
   },
   "author": "",
   "license": "MIT"

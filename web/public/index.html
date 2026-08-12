@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Twitch チャット翻訳bot 管理画面</title>
+<link rel="stylesheet" href="/css/style.css">
+<link rel="icon" href="data:,">
+</head>
+<body>
+
+<header class="topbar">
+    <div class="topbar-inner">
+        <div class="brand">
+            <span class="brand-dot" aria-hidden="true">訳</span>
+            <span>Twitch チャット翻訳bot
+                <small id="brandChannel">管理画面</small>
+            </span>
+        </div>
+        <div class="user-chip">
+            <img id="userAvatar" alt="" class="hidden">
+            <span id="userName">読み込み中…</span>
+        </div>
+        <button type="button" class="btn btn-small" id="logoutButton">ログアウト</button>
+    </div>
+    <nav class="tabs" id="tabs">
+        <button type="button" class="tab active" data-view="dashboard">ダッシュボード</button>
+        <button type="button" class="tab" data-view="config">基本設定</button>
+        <button type="button" class="tab" data-view="lists">翻訳除外リスト</button>
+        <button type="button" class="tab" data-view="emotes">エモート</button>
+        <button type="button" class="tab" data-view="google">Google Cloud キー</button>
+    </nav>
+</header>
+
+<main>
+
+<!-- ============================ ダッシュボード ============================ -->
+<section id="view-dashboard" class="view">
+    <div class="panel">
+        <div class="panel-head">
+            <div>
+                <h2>現在の状態</h2>
+                <p>bot の稼働状況と設定の過不足を確認できます。</p>
+            </div>
+            <button type="button" class="btn btn-small" id="refreshOverview">再読み込み</button>
+        </div>
+        <div id="overviewNotices"></div>
+        <div class="stat-grid" id="overviewStats">
+            <div class="loading">読み込み中…</div>
+        </div>
+    </div>
+
+    <div class="panel">
+        <div class="panel-head">
+            <div>
+                <h2>リストの反映</h2>
+                <p>リストファイルを編集したあと、稼働中の bot に <code>SIGHUP</code> を送って再読み込みさせます。
+                   （チャットから <code>!refreshignoreuser</code> などを実行するのと同じ効果です）</p>
+            </div>
+            <button type="button" class="btn btn-primary" id="reloadBot">bot に反映する</button>
+        </div>
+        <p class="panel-help" id="botStatusText">—</p>
+    </div>
+</section>
+
+<!-- ============================ 基本設定 ============================ -->
+<section id="view-config" class="view hidden">
+    <div class="panel">
+        <div class="panel-head">
+            <div>
+                <h2>基本設定</h2>
+                <p>保存すると <code>config/local.json</code> に書き込まれます。
+                   <code>config/default.json</code> は変更せず、同じ項目があれば <code>local.json</code> の値が優先されます。</p>
+            </div>
+            <button type="button" class="btn btn-small" id="fillFromOauth">Twitch ログイン情報から入力</button>
+        </div>
+        <div id="configNotices"></div>
+    </div>
+
+    <form id="configForm">
+        <div id="configGroups">
+            <div class="panel"><div class="loading">読み込み中…</div></div>
+        </div>
+
+        <div class="panel">
+            <div class="actions">
+                <button type="submit" class="btn btn-primary" id="saveConfig">設定を保存</button>
+                <button type="button" class="btn" id="reloadConfig">変更を破棄して再読み込み</button>
+                <span class="spacer"></span>
+                <span class="note" id="configMeta"></span>
+            </div>
+        </div>
+    </form>
+</section>
+
+<!-- ============================ 翻訳除外リスト ============================ -->
+<section id="view-lists" class="view hidden">
+    <div class="panel" data-list="ignoreusers">
+        <div class="panel-head">
+            <div>
+                <h2>翻訳しないユーザー</h2>
+                <p class="list-help">—</p>
+            </div>
+            <span class="badge badge-muted list-count">—</span>
+        </div>
+        <div class="list-notices"></div>
+        <textarea class="list-input" spellcheck="false" aria-label="翻訳しないユーザー"></textarea>
+        <div class="list-meta">
+            <span class="list-path"></span>
+            <span class="list-updated"></span>
+        </div>
+        <div class="actions">
+            <button type="button" class="btn btn-primary list-save">保存</button>
+            <button type="button" class="btn list-reload">再読み込み</button>
+        </div>
+    </div>
+
+    <div class="panel" data-list="ignoreline">
+        <div class="panel-head">
+            <div>
+                <h2>翻訳しない文字列（正規表現）</h2>
+                <p class="list-help">—</p>
+            </div>
+            <span class="badge badge-muted list-count">—</span>
+        </div>
+        <div class="list-notices"></div>
+        <textarea class="list-input" spellcheck="false" aria-label="翻訳しない文字列"></textarea>
+        <div class="list-meta">
+            <span class="list-path"></span>
+            <span class="list-updated"></span>
+        </div>
+        <div class="actions">
+            <button type="button" class="btn btn-primary list-save">保存</button>
+            <button type="button" class="btn list-reload">再読み込み</button>
+        </div>
+    </div>
+</section>
+
+<!-- ============================ エモート ============================ -->
+<section id="view-emotes" class="view hidden">
+    <div class="panel">
+        <div class="panel-head">
+            <div>
+                <h2>エモート一覧の自動更新</h2>
+                <p>BetterTTV と FrankerFaceZ からエモート名を取得して <code>emoticons.json</code> を更新します。
+                   対象チャンネルと配信者のユーザー ID は「基本設定」の値を使用します。</p>
+            </div>
+        </div>
+
+        <div class="field">
+            <label>更新方法</label>
+            <div class="radio-row">
+                <label><input type="radio" name="emoteMode" value="merge" checked>
+                    <span><strong>追加（推奨）</strong><br>既存の一覧を残したまま、取得したエモートを追加します。手動で足したものは消えません。</span></label>
+                <label><input type="radio" name="emoteMode" value="replace">
+                    <span><strong>置き換え</strong><br>取得したエモートだけで一覧を作り直します。手動で足したものは失われます。</span></label>
+            </div>
+        </div>
+
+        <div id="emoteNotices"></div>
+
+        <div class="actions">
+            <button type="button" class="btn" id="previewEmotes">取得内容を確認（保存しない）</button>
+            <button type="button" class="btn btn-primary" id="updateEmotes">取得して保存</button>
+            <span class="spacer"></span>
+            <span class="note" id="emoteTarget"></span>
+        </div>
+
+        <ul class="source-list hidden" id="emoteSources"></ul>
+    </div>
+
+    <div class="panel" data-list="emoticons">
+        <div class="panel-head">
+            <div>
+                <h2>エモート一覧の手動編集</h2>
+                <p class="list-help">—</p>
+            </div>
+            <span class="badge badge-muted list-count">—</span>
+        </div>
+        <div class="list-notices"></div>
+        <textarea class="list-input" spellcheck="false" aria-label="エモート一覧"></textarea>
+        <div class="list-meta">
+            <span class="list-path"></span>
+            <span class="list-updated"></span>
+        </div>
+        <div class="actions">
+            <button type="button" class="btn btn-primary list-save">保存</button>
+            <button type="button" class="btn list-reload">再読み込み</button>
+        </div>
+    </div>
+</section>
+
+<!-- ============================ Google Cloud キー ============================ -->
+<section id="view-google" class="view hidden">
+    <div class="panel">
+        <div class="panel-head">
+            <div>
+                <h2>サービスアカウントキーのアップロード</h2>
+                <p>Google Cloud Translation API のサービスアカウントキー（JSON）をアップロードします。
+                   保存先は <code>config/</code> 配下で、パーミッションは 0600（所有者のみ読み書き可）に設定されます。</p>
+            </div>
+            <button type="button" class="btn btn-small" id="refreshGoogle">再読み込み</button>
+        </div>
+
+        <div id="googleNotices"></div>
+
+        <div class="file-drop" id="keyDrop" tabindex="0" role="button">
+            <strong>JSON ファイルを選択、またはここにドラッグ＆ドロップ</strong>
+            サービスアカウントキー（<code>*.json</code>）のみ受け付けます
+        </div>
+        <input type="file" id="keyFile" accept="application/json,.json" class="hidden">
+
+        <div class="field" id="keyPreview">
+            <p class="help" id="keyPreviewText"></p>
+        </div>
+
+        <div class="actions">
+            <button type="button" class="btn btn-primary" id="uploadKey" disabled>アップロードして設定に反映</button>
+            <span class="spacer"></span>
+            <span class="note">アップロードすると <code>googleKeyFile</code> と <code>googleProjectId</code> が自動的に更新されます。</span>
+        </div>
+    </div>
+
+    <div class="panel">
+        <h2>現在のキー</h2>
+        <p class="panel-help">bot が読み込む設定に書かれているキーファイルの状態です。</p>
+        <table class="simple" id="googleStatus">
+            <tbody><tr><td class="loading">読み込み中…</td></tr></tbody>
+        </table>
+    </div>
+</section>
+
+</main>
+
+<div class="toast-area" id="toasts" aria-live="polite"></div>
+
+<script src="/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>ログイン | Twitch チャット翻訳bot 管理画面</title>
+<link rel="stylesheet" href="/css/style.css">
+<link rel="icon" href="data:,">
+</head>
+<body class="login-page">
+
+<div class="login-card">
+    <div class="logo-mark" aria-hidden="true">訳</div>
+    <h1>Twitch チャット翻訳bot</h1>
+    <p class="lead">管理画面にログインします</p>
+
+    <div id="message"></div>
+
+    <a class="btn btn-twitch" id="loginButton" href="/auth/twitch">Twitch でログイン</a>
+
+    <p class="login-note">
+        ログインには、管理画面の設定ファイル（<code>config/webui.json</code>）で
+        許可されている Twitch アカウントが必要です。<br>
+        ログイン時に取得したチャンネル名とユーザー ID は、
+        <code>twitchChannel</code> / <code>twitchBroadcasterId</code> の自動入力に利用されます。
+        追加の権限（スコープ）は要求しません。
+    </p>
+</div>
+
+<script src="/js/login.js"></script>
+</body>
+</html>

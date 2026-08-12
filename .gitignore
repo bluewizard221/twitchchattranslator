@@ -58,6 +58,15 @@ typings/
 # dotenv environment variables file
 .env
 
+# 認証情報・実環境の設定（管理画面から生成されるものを含む）
+config/local.json
+config/local-*.json
+config/webui.json
+config/tokens.json
+config/google-key.json
+config/*-key.json
+*.bak
+
 # next.js build output
 .next
 README.BAK

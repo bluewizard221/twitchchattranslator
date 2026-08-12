@@ -1,9 +1,9 @@
 #!/usr/local/bin/node
 
-const fs = require('fs');
 const confFile = require('config');
 const log4js = require('log4js');
-const got = require('got');
+const { fetchEmoteNames } = require('./lib/emotes');
+const lists = require('./lib/lists');
 
 log4js.configure({
     appenders: { system: { type: 'dateFile', filename: 'logs/emotelistupdate.log', pattern: "yyyyMMdd", compress: true } },
@@ -12,86 +12,54 @@ log4js.configure({
 
 const logger = log4js.getLogger('system');
 
+// ログを書き出してから終了する（log4js はバッファリングするため）
+function quit(code) {
+    log4js.shutdown(() => process.exit(code));
+}
+
 if (!confFile.config.twitchChannel) {
     logger.error('Twitch Channel name is not provided');
-    process.exit(2);
-}
-
-if (!confFile.config.twitchUserId) {
+    quit(2);
+} else if (!confFile.config.twitchUserId) {
     logger.error('Twitch User ID is not provided');
-    process.exit(3);
+    quit(3);
+} else {
+    (async () => {
+	try {
+	    const result = await fetchEmoteNames({
+		twitchChannel: confFile.config.twitchChannel,
+		twitchUserId: confFile.config.twitchUserId
+	    });
+
+	    for (const source of result.sources) {
+		if (source.ok) {
+		    logger.info(source.label + ': ' + source.count + ' emote(s) fetched, ' + source.added + ' added');
+		}
+	    }
+
+	    // 取得に失敗した取得元は warnings 側に含まれる
+	    for (const warning of result.warnings) {
+		logger.warn(warning);
+	    }
+
+	    // 全滅した場合は空の一覧で emoticons.json を上書きしない
+	    if (result.sources.every((source) => !source.ok)) {
+		logger.error('no emote source responded. emoticons.json is left untouched');
+		return quit(5);
+	    }
+
+	    const written = lists.write('emoticons', result.names);
+
+	    if (!written.ok) {
+		logger.error('failed to write emoticons.json: ' + written.errors.join(' / '));
+		return quit(4);
+	    }
+
+	    logger.info('emoticons.json updated: ' + written.items.length + ' emote(s)');
+	} catch(err) {
+	    logger.error(err.message);
+	    console.log(err);
+	    quit(1);
+	}
+    })();
 }
-
-const emoticonFile = './emoticons.json';
-
-var emoticons = [];
-
-(async () => {
-    try {
-	let response;
-	let parsed;
-	let i;
-	let setid;
-
-	// BTTV global
-	response = await got('https://api.betterttv.net/3/cached/emotes/global');
-	parsed = JSON.parse(response.body);
-	i = parsed.length;
-
-	while (i--) {
-	    emoticons.push(parsed[i].code);
-	}
-
-	logger.info('BTTV emoticons(global) list updated');
-
-
-	// BTTV channel
-	response = await got('https://api.betterttv.net/3/cached/users/twitch/' + confFile.config.twitchUserId);
-	parsed = JSON.parse(response.body);
-	i = parsed.sharedEmotes.length;
-
-	while (i--) {
-	    emoticons.push(parsed.sharedEmotes[i].code);
-	}
-
-	logger.info('BTTV emoticons(channel) list updated');
-
-	i = parsed.sharedEmotes.length;
-
-	while (i--) {
-	    emoticons.push(parsed.sharedEmotes[i].code);
-	}
-
-	logger.info('BTTV emoticons(shared) list updated');
-
-	// FFZ userroom
-	response = await got('https://api.frankerfacez.com/v1/room/' + confFile.config.twitchChannel);
-	parsed = JSON.parse(response.body);
-	setid = parsed.room.set;
-	i = parsed.sets[setid].emoticons.length;
-
-	while (i--) {
-	    emoticons.push(parsed.sets[setid].emoticons[i].name);
-	}
-
-	logger.info('FFZ emoticons(userroom) list updated');
-
-
-	// FFZ(global)
-	response = await got('https://api.frankerfacez.com/v1/set/global');
-	parsed = JSON.parse(response.body);
-	setid = parsed.default_sets;
-	i = parsed.sets[setid].emoticons.length;
-
-	while (i--) {
-	    emoticons.push(parsed.sets[setid].emoticons[i].name);
-	}
-
-	logger.info('FFZ emoticons(global) list updated');
-
-	result = { "emoticons": emoticons };
-	fs.writeFileSync(emoticonFile, JSON.stringify(result));
-    } catch(err) {
-	console.log(err);
-    }
-})();
