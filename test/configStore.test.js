@@ -92,6 +92,21 @@ test('不正な値は保存されずエラーを返す', () => {
     assert.strictEqual(require('fs').existsSync(LOCAL_CONFIG), false);
 });
 
+test('配信状態の確認間隔は省略でき、範囲外の値は拒否する', () => {
+    resetConfig();
+
+    assert.strictEqual(configStore.saveLocal({ streamStatusPollSeconds: '30' }).ok, true);
+    assert.strictEqual(readJson(LOCAL_CONFIG).config.streamStatusPollSeconds, 30);
+
+    const tooShort = configStore.saveLocal({ streamStatusPollSeconds: '5' });
+    assert.strictEqual(tooShort.ok, false);
+    assert.ok(tooShort.errors.streamStatusPollSeconds);
+
+    // 空欄は local.json から取り消して既定値（60 秒）に戻す
+    assert.strictEqual(configStore.saveLocal({ streamStatusPollSeconds: '' }).ok, true);
+    assert.strictEqual(Object.prototype.hasOwnProperty.call(readJson(LOCAL_CONFIG).config, 'streamStatusPollSeconds'), false);
+});
+
 test('未知の項目は拒否する', () => {
     resetConfig();
 

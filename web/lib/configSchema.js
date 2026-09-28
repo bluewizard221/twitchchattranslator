@@ -135,6 +135,17 @@ const FIELDS = [
         min: 1,
         max: 1000,
         help: '同一ユーザーから 1 分間に受け付ける最大翻訳回数。これを超えた発言は翻訳されません。'
+    },
+    {
+        key: 'streamStatusPollSeconds',
+        label: '配信状態の確認間隔（秒）',
+        type: 'number',
+        group: 'behavior',
+        required: false,
+        min: 10,
+        max: 3600,
+        placeholder: '60',
+        help: 'チャンネル主以外の発言は配信中のみ翻訳します。配信中かどうかを Twitch に問い合わせる間隔（秒）です。未入力なら 60 秒。配信開始・終了の反映には最大でこの間隔ぶん遅れます。'
     }
 ];
 
