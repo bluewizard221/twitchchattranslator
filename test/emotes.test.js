@@ -31,30 +31,31 @@ const ROUTES = {
     },
     'https://api.frankerfacez.com/v1/room/': {
         body: { room: { set: 100 }, sets: { 100: { emoticons: [{ name: 'RoomOne' }] } } }
-    },
-    'https://api.frankerfacez.com/v1/set/global': {
-        body: { default_sets: [3, 4], sets: { 3: { emoticons: [{ name: 'FfzGlobalOne' }] }, 4: { emoticons: [{ name: 'FfzGlobalTwo' }] } } }
     }
 };
 
-test('4 つの取得元をまとめて重複を除く', async () => {
+test('3 つの取得元をまとめて重複を除く', async () => {
     stubFetch(ROUTES);
 
     const result = await fetchEmoteNames({ twitchChannel: 'my_channel', twitchUserId: '12345' });
 
     assert.deepStrictEqual(result.names.sort(), [
-        'ChannelOne', 'FfzGlobalOne', 'FfzGlobalTwo', 'GlobalOne', 'GlobalTwo', 'RoomOne', 'SharedOne'
+        'ChannelOne', 'GlobalOne', 'GlobalTwo', 'RoomOne', 'SharedOne'
     ]);
     assert.strictEqual(result.warnings.length, 0);
-    assert.strictEqual(result.sources.length, 4);
+    assert.strictEqual(result.sources.length, 3);
 });
 
-test('FFZ の default_sets が複数あってもすべて読み込む', async () => {
+test('FFZ グローバルエモートは取得しない', async () => {
+    const requested = [];
+
     stubFetch(ROUTES);
+    const stubbed = globalThis.fetch;
+    globalThis.fetch = async (url) => { requested.push(String(url)); return stubbed(url); };
 
-    const result = await fetchEmoteNames({ twitchChannel: 'my_channel', twitchUserId: '12345' });
+    await fetchEmoteNames({ twitchChannel: 'my_channel', twitchUserId: '12345' });
 
-    assert.ok(result.names.indexOf('FfzGlobalTwo') !== -1);
+    assert.strictEqual(requested.filter((url) => url.startsWith('https://api.frankerfacez.com/v1/set/global')).length, 0);
 });
 
 test('一部の取得元が失敗しても残りは取得する', async () => {
