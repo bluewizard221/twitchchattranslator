@@ -710,7 +710,7 @@ function refreshIgnoreLine(target, context) {
 }
 
 function refreshEmoticonsList(target, context) {
-    if (context.mod === false && context.username !== twitchChannel) { return; }
+    if (context.mod === false && context.username !== confFile.config.twitchChannel) { return; }
 
     refreshList('emoticons');
 
