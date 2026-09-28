@@ -606,7 +606,7 @@ function refreshList(category) {
 		logger.error("ERROR: can't reload " + emoticonJson);
 	    //	sendChatMessage(target, "ERROR: can't reload emoticons user list");
 	    } else {
-		logger.info("ignoring user list has been reloaded from " + emoticonJson);
+		logger.info("emoticons list has been reloaded from " + emoticonJson);
 	    //	sendChatMessage(target, 'emoticons list has been reloaded from json file');
 	    }
 
