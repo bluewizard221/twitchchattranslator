@@ -400,6 +400,74 @@ function deleteAllTranslationsForUser(username, action) {
 }
 
 // ============================================================
+// Stream status (live / offline) polling
+// Broadcaster's messages are always translated,
+// other users' messages are translated only while the stream is live
+// ============================================================
+
+const STREAM_STATUS_POLL_INTERVAL = (confFile.config.streamStatusPollSeconds || 60) * 1000;
+
+// null = unknown (not checked yet, or every check so far has failed)
+let streamIsLive = null;
+
+async function checkStreamStatus() {
+    try {
+	const token = await getAppAccessToken();
+
+	const res = await fetch('https://api.twitch.tv/helix/streams?user_id=' + confFile.config.twitchBroadcasterId, {
+	    headers: {
+		'Authorization': 'Bearer ' + token,
+		'Client-Id': confFile.config.twitchClientId
+	    }
+	});
+
+	if (!res.ok) {
+	    const body = await res.text();
+	    logger.error('Helix get streams failed: ' + res.status + ' ' + body);
+
+	    // Token may be invalid, reset it
+	    if (res.status === 401) {
+		appAccessToken = null;
+		tokenExpiresAt = 0;
+	    }
+	    return;
+	}
+
+	const data = await res.json();
+	const live = Array.isArray(data.data) && data.data.some((stream) => stream.type === 'live');
+
+	if (live !== streamIsLive) {
+	    logger.info('Stream status changed: ' + streamStatusLabel(streamIsLive) + ' -> ' + streamStatusLabel(live));
+	    streamIsLive = live;
+	}
+    } catch (err) {
+	logger.error('checkStreamStatus error: ' + err.message);
+    }
+}
+
+function streamStatusLabel(status) {
+    if (status === null) { return 'unknown'; }
+    return status ? 'live' : 'offline';
+}
+
+function isBroadcaster(context) {
+    if (context['user-id'] === String(confFile.config.twitchBroadcasterId)) { return true; }
+    return !!(context.badges && context.badges.broadcaster === '1');
+}
+
+function isTranslationEnabled(context) {
+    if (isBroadcaster(context)) { return true; }
+
+    // Status unknown (API unreachable so far): keep translating as before
+    if (streamIsLive === null) { return true; }
+
+    return streamIsLive;
+}
+
+checkStreamStatus();
+setInterval(checkStreamStatus, STREAM_STATUS_POLL_INTERVAL);
+
+// ============================================================
 // Main application
 // ============================================================
 
@@ -501,6 +569,11 @@ logger.info(context);
         refreshEmoticonsList(target, context);
         return;
     } else if (line.match(/^\!/)) {
+	return;
+    }
+
+    if (!isTranslationEnabled(context)) {
+	logger.debug('stream is offline. skip translation for user [' + context.username + ']');
 	return;
     }
 
