@@ -1,0 +1,10 @@
+node_modules
+logs
+config/default.json
+config/tokens.json
+*.json.orig
+*.js.orig
+.git
+.gitignore
+.github
+audit-report.json

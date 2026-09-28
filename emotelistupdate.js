@@ -76,19 +76,6 @@ var emoticons = [];
 
 	logger.info('FFZ emoticons(userroom) list updated');
 
-
-	// FFZ(global)
-	response = await got('https://api.frankerfacez.com/v1/set/global');
-	parsed = JSON.parse(response.body);
-	setid = parsed.default_sets;
-	i = parsed.sets[setid].emoticons.length;
-
-	while (i--) {
-	    emoticons.push(parsed.sets[setid].emoticons[i].name);
-	}
-
-	logger.info('FFZ emoticons(global) list updated');
-
 	result = { "emoticons": emoticons };
 	fs.writeFileSync(emoticonFile, JSON.stringify(result));
     } catch(err) {

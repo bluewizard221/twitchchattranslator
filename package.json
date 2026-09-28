@@ -4,14 +4,13 @@
   "description": "twitch chat translator",
   "main": "twitchchattranslator.js",
   "dependencies": {
-    "@google-cloud/translate": "^9.4.1",
+    "@google-cloud/translate": "^9.3.0",
     "config": "^3.3.12",
-    "fs": "0.0.1-security",
-    "got": "^14.4.2",
+    "fs": "^0.0.1-security",
+    "got": "^11.8.6",
     "log4js": "^6.9.1",
     "tmi.js": "^1.8.5"
   },
-  "devDependencies": {},
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
