@@ -1,7 +1,7 @@
 node_modules
 logs
-config/default.json
-config/tokens.json
+# config/ holds credentials (twitch tokens, GCP service-account key); mounted at runtime
+config/
 *.json.orig
 *.js.orig
 .git
