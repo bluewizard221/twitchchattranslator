@@ -70,3 +70,6 @@ config/*-key.json
 # next.js build output
 .next
 README.BAK
+
+# config directory
+config/*
