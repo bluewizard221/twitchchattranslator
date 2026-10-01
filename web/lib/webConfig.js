@@ -3,12 +3,14 @@
 const crypto = require('crypto');
 const paths = require('../../lib/paths');
 const { readJson } = require('../../lib/fileStore');
-const configStore = require('./configStore');
+const sharedConfig = require('../../lib/sharedConfig');
 const { loadOperators } = require('./operators');
 
 /**
  * 管理画面自身の設定を読み込む。
- * 優先順位: 環境変数  >  config/webui.json  >  bot 設定（Client ID / Secret のみ）
+ * 優先順位: 環境変数  >  config/webui.json。
+ * Twitch アプリの Client ID / Secret は共通の設定（lib/sharedConfig.js: config/default.json → local.json → 環境変数）から読む。
+ * WEBUI_TWITCH_CLIENT_ID / WEBUI_TWITCH_CLIENT_SECRET があればそちらを優先する（試用時の互換）。
  */
 function load() {
     const fileResult = readJson(paths.WEBUI_CONFIG);
@@ -18,10 +20,10 @@ function load() {
     const port = toPort(pick(process.env.WEBUI_PORT, file.port), 3000);
     const host = pick(process.env.WEBUI_HOST, file.host) || '127.0.0.1';
 
-    const botConfig = safeBotConfig();
+    const shared = safeSharedConfig();
 
-    const clientId = str(pick(process.env.WEBUI_TWITCH_CLIENT_ID, file.twitchClientId, botConfig.twitchClientId));
-    const clientSecret = str(pick(process.env.WEBUI_TWITCH_CLIENT_SECRET, file.twitchClientSecret, botConfig.twitchClientSecret));
+    const clientId = str(pick(process.env.WEBUI_TWITCH_CLIENT_ID, shared.twitchClientId));
+    const clientSecret = str(pick(process.env.WEBUI_TWITCH_CLIENT_SECRET, shared.twitchClientSecret));
     const redirectUri = str(pick(process.env.WEBUI_REDIRECT_URI, file.redirectUri)) ||
         ('http://localhost:' + port + '/auth/twitch/callback');
 
@@ -45,7 +47,7 @@ function load() {
     }
     if (!clientId || !clientSecret) {
         errors.push('Twitch アプリの Client ID / Client Secret が設定されていません。' +
-            'config/webui.json または環境変数 WEBUI_TWITCH_CLIENT_ID / WEBUI_TWITCH_CLIENT_SECRET を設定してください。');
+            'config/default.json（または config/local.json）の twitchClientId / twitchClientSecret を設定してください。');
     }
     if (loadOperators(allowedUsers).length === 0) {
         errors.push('運営者が 1 人も設定されていません。' +
@@ -71,15 +73,13 @@ function load() {
         rateLimitAuthPerMinute: toInt(pick(process.env.WEBUI_RATE_LIMIT_AUTH, file.rateLimitAuthPerMinute), 30),
         rateLimitApiPerMinute: toInt(pick(process.env.WEBUI_RATE_LIMIT_API, file.rateLimitApiPerMinute), 600),
         warnings,
-        errors,
-        // Client ID / Secret を bot 設定から流用したかどうか（画面に表示する）
-        usingBotCredentials: !process.env.WEBUI_TWITCH_CLIENT_ID && !file.twitchClientId && !!botConfig.twitchClientId
+        errors
     };
 }
 
-function safeBotConfig() {
+function safeSharedConfig() {
     try {
-        return configStore.usableValues();
+        return sharedConfig.load();
     } catch (err) {
         return {};
     }

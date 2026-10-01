@@ -7,7 +7,7 @@ const USERS_URL = 'https://api.twitch.tv/helix/users';
 
 const REQUEST_TIMEOUT_MS = 15000;
 
-/** ログイン用の認可 URL を組み立てる（追加スコープは要求しない） */
+/** 認可 URL を組み立てる（ログインと bot アカウントの接続で共用。スコープは呼び出し側が渡す） */
 function buildAuthorizeUrl(options) {
     const url = new URL(AUTHORIZE_URL);
 
@@ -80,7 +80,10 @@ async function getAuthenticatedUser(options) {
     };
 }
 
-/** ログアウト時にアクセストークンを失効させる（失敗しても致命的ではない） */
+/**
+ * トークンを Twitch 側で無効化する（アクセストークン・リフレッシュトークンのどちらも渡せる）。
+ * @returns {Promise<boolean>} 無効化できたか（すでに無効なトークンは Twitch が 400 を返すので false）
+ */
 async function revokeToken(options) {
     const params = new URLSearchParams({
         client_id: options.clientId,
@@ -88,12 +91,12 @@ async function revokeToken(options) {
     });
 
     try {
-        await fetch(REVOKE_URL, {
+        const res = await fetch(REVOKE_URL, {
             method: 'POST',
             body: params,
             signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
         });
-        return true;
+        return res.ok;
     } catch (err) {
         return false;
     }

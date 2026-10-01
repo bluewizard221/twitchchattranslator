@@ -19,7 +19,8 @@ const OPERATOR_ACTIONS = new Set([
     'channels.register',
     'channels.delete',
     'shared.config',
-    'audit.all'
+    'audit.all',
+    'system.logs'
 ]);
 
 // 運営者は他人のチャンネルにも行える操作。配信者は自分のチャンネルだけ

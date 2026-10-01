@@ -1,163 +1,82 @@
 'use strict';
 
 /**
- * config/default.json の config セクションで bot が参照する項目の定義。
- * label / help は日本語 UI にそのまま表示される。
+ * 管理画面で編集できる設定の定義（複数チャンネル対応版）。
  *
- *   type   : 'text' | 'password' | 'number' | 'path'
- *   secret : true の場合、値をブラウザへ送らず「設定済み」の有無だけを返す
- *   oauth  : Twitch ログイン情報から自動入力できる項目（'login' = チャンネル名 / 'id' = 数値 ID）
+ * - CHANNEL_FIELDS: 配信者が自分のチャンネルについて編集する項目（channels/<login>/config/local.json）
+ * - SHARED_FIELDS:  運営者が編集する共通の項目（config/local.json）
+ *
+ * 対象チャンネル（twitchChannel）と配信者の ID（twitchBroadcasterId）は編集させない。
+ * 登録時と配信者のログイン時に、ログイン名と Twitch の ID から自動で記録する。
+ * bot アカウントは OAuth 接続、GCP のキーはアップロードで設定するので、ここには含めない。
+ *
+ *   type   : 'text' | 'password' | 'number' | 'url'
+ *   secret : true の場合、値をブラウザへ返さず「設定済み」かどうかだけを返す（書き込み専用）
  */
-const FIELDS = [
-    {
-        key: 'pidFile',
-        label: 'PID ファイル',
-        type: 'path',
-        group: 'bot',
-        required: true,
-        placeholder: '/var/run/twitchchattranslator.pid',
-        help: 'bot がプロセス ID を書き出すファイルのパス。設定の再読み込み（SIGHUP）にも使用します。'
-    },
-    {
-        key: 'twitchUserName',
-        label: 'bot のユーザー名',
-        type: 'text',
-        group: 'bot',
-        required: true,
-        placeholder: 'my_translator_bot',
-        help: '翻訳 bot として発言するアカウントのユーザー名（表示名ではなくアルファベットの方）。'
-    },
-    {
-        key: 'twitchOauth',
-        label: 'bot の OAuth トークン',
-        type: 'password',
-        group: 'bot',
-        secret: true,
-        required: true,
-        placeholder: 'oauth:xxxxxxxxxxxxxxxx',
-        help: 'IRC 接続用のトークン。https://twitchapps.com/tmi/ で取得できます（oauth: から始まる文字列）。'
-    },
-    {
-        key: 'twitchChannel',
-        label: '対象チャンネル名',
-        type: 'text',
-        group: 'channel',
-        required: true,
-        oauth: 'login',
-        pattern: /^[a-zA-Z0-9_]{3,25}$/,
-        patternHelp: '半角英数字とアンダースコアのみ、3〜25 文字で入力してください。',
-        placeholder: 'my_channel',
-        help: '翻訳 bot を動かすチャンネル名（表示名ではなくアルファベットの方）。他人のチャンネルに翻訳を投稿しないよう、ログイン中の Twitch アカウントのチャンネルしか設定できません。「ログイン情報から」で入力してください。'
-    },
-    {
-        key: 'twitchBroadcasterId',
-        label: '配信者のユーザー ID',
-        type: 'text',
-        group: 'channel',
-        required: true,
-        oauth: 'id',
-        pattern: /^[0-9]{1,20}$/,
-        patternHelp: '数字のみで入力してください。',
-        placeholder: '123456789',
-        help: '配信チャンネル所有者の数値 ID。ログイン中の Twitch アカウントの ID しか設定できません。「ログイン情報から」で入力してください。'
-    },
-    {
-        key: 'twitchClientId',
-        label: 'アプリの Client ID',
-        type: 'text',
-        group: 'app',
-        required: true,
-        placeholder: 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
-        help: 'Twitch Developer Console で登録したアプリケーションの Client ID。'
-    },
-    {
-        key: 'twitchClientSecret',
-        label: 'アプリの Client Secret',
-        type: 'password',
-        group: 'app',
-        secret: true,
-        required: true,
-        help: '同じアプリケーションのクライアントシークレット。発行時にしか表示されないため控えを保管してください。'
-    },
-    {
-        key: 'twitchBotUserId',
-        label: 'bot のユーザー ID',
-        type: 'text',
-        group: 'bot',
-        required: true,
-        pattern: /^[0-9]{1,20}$/,
-        patternHelp: '数字のみで入力してください。',
-        placeholder: '987654321',
-        help: '翻訳 bot アカウントの数値 ID。Helix API での発言およびメッセージ削除に使用します。'
-    },
-    {
-        key: 'twitchBotUserAccessToken',
-        label: 'bot の User Access Token',
-        type: 'password',
-        group: 'bot',
-        secret: true,
-        required: true,
-        help: 'メッセージ削除に必要な bot ユーザーのアクセストークン（moderator:manage:chat_messages スコープ）。'
-    },
-    {
-        key: 'twitchBotRefreshToken',
-        label: 'bot の Refresh Token',
-        type: 'password',
-        group: 'bot',
-        secret: true,
-        required: true,
-        help: 'アクセストークンの有効期限が切れた際に自動更新するためのリフレッシュトークン。'
-    },
-    {
-        key: 'googleProjectId',
-        label: 'Google Cloud プロジェクト ID',
-        type: 'text',
-        group: 'google',
-        required: true,
-        placeholder: 'my-gcp-project',
-        help: 'Cloud Translation API を有効にしたプロジェクトの ID。サービスアカウントキーをアップロードすると自動入力されます。'
-    },
-    {
-        key: 'googleKeyFile',
-        label: 'サービスアカウントキーのパス',
-        type: 'path',
-        group: 'google',
-        required: true,
-        placeholder: 'config/google-key.json',
-        help: 'Google Cloud のサービスアカウントキー（JSON）のファイルパス。「Google Cloud キー」タブからアップロードできます。'
-    },
+
+const CHANNEL_FIELDS = [
     {
         key: 'coolDownCount',
         label: 'クールダウン回数',
         type: 'number',
-        group: 'behavior',
         required: true,
         min: 1,
         max: 1000,
-        help: '同一ユーザーから 1 分間に受け付ける最大翻訳回数。これを超えた発言は翻訳されません。'
+        default: 5,
+        help: '同一ユーザーの発言を 1 分間に何回目まで翻訳するか（この回数に達した発言から翻訳しません）。モデレーターとチャンネル主は対象外です。'
     },
     {
-        key: 'streamStatusPollSeconds',
-        label: '配信状態の確認間隔（秒）',
+        key: 'dailyCharLimit',
+        label: '1 日の翻訳文字数の上限',
         type: 'number',
-        group: 'behavior',
         required: false,
-        min: 10,
-        max: 3600,
-        placeholder: '60',
-        help: 'チャンネル主以外の発言は配信中のみ翻訳します。配信中かどうかを Twitch に問い合わせる間隔（秒）です。未入力なら 60 秒。配信開始・終了の反映には最大でこの間隔ぶん遅れます。'
+        min: 0,
+        max: 100000000,
+        default: 0,
+        help: 'Google に送る文字数の 1 日の上限です（言語の判定と翻訳の両方を数えます）。超えたらその日は翻訳しません。0 または空欄で上限なし。'
     }
 ];
 
-const GROUPS = [
-    { key: 'bot', label: '翻訳 bot アカウント', help: 'チャットに翻訳を投稿する bot アカウントの設定です。' },
-    { key: 'channel', label: '対象チャンネル', help: 'Twitch ログイン情報から自動入力できます。' },
-    { key: 'app', label: 'Twitch アプリケーション', help: 'Twitch Developer Console で登録したアプリの認証情報です。' },
-    { key: 'google', label: 'Google Cloud Translation', help: '翻訳 API に接続するための設定です。' },
-    { key: 'behavior', label: '動作設定', help: '翻訳の挙動に関する設定です。チャンネル主の発言は常に、それ以外のユーザーの発言は配信中のみ翻訳します。' }
+const SHARED_FIELDS = [
+    {
+        key: 'twitchClientId',
+        label: 'Twitch アプリの Client ID',
+        type: 'text',
+        required: true,
+        pattern: /^[a-z0-9]{10,64}$/,
+        patternHelp: '半角英小文字と数字で入力してください。',
+        help: 'Twitch Developer Console で登録したアプリの Client ID。ログイン・bot の接続・EventSub のすべてに使います。'
+    },
+    {
+        key: 'twitchClientSecret',
+        label: 'Twitch アプリの Client Secret',
+        type: 'password',
+        secret: true,
+        required: true,
+        help: '同じアプリのクライアントシークレット。'
+    },
+    {
+        key: 'eventsubCallbackUrl',
+        label: 'EventSub の受信口の URL',
+        type: 'url',
+        required: true,
+        // ホスト名に ":ポート" を含めさせない（443 の明示だけは許す）
+        pattern: /^https:\/\/[A-Za-z0-9.-]+(:443)?\/eventsub\/callback$/,
+        patternHelp: 'https://<ドメイン>/eventsub/callback の形で入力してください（Twitch の条件で 443 番の HTTPS のみ）。',
+        placeholder: 'https://translate.bwscar221.site/eventsub/callback',
+        help: 'Twitch がチャットのイベントを送ってくる URL です。'
+    },
+    {
+        key: 'eventsubSecret',
+        label: 'EventSub の署名用シークレット',
+        type: 'password',
+        secret: true,
+        required: true,
+        minLength: 10,
+        maxLength: 100,
+        help: '受け取ったイベントの署名の検証に使う、10〜100 文字のランダムな文字列（例: openssl rand -hex 32）。'
+    }
 ];
-
-const FIELD_BY_KEY = new Map(FIELDS.map((field) => [field.key, field]));
 
 /**
  * 1 項目分の入力値を検証し、保存すべき値に正規化する。
@@ -165,10 +84,7 @@ const FIELD_BY_KEY = new Map(FIELDS.map((field) => [field.key, field]));
  */
 function validateField(field, rawValue) {
     if (rawValue === null || rawValue === undefined || rawValue === '') {
-        if (field.required) {
-            return { error: field.label + 'は必須項目です。' };
-        }
-        return { value: '' };
+        return field.required ? { error: field.label + 'は必須項目です。' } : { value: '' };
     }
 
     if (field.type === 'number') {
@@ -199,28 +115,35 @@ function validateField(field, rawValue) {
     if (value.indexOf('\0') !== -1 || /[\r\n]/.test(value)) {
         return { error: field.label + 'に改行や制御文字は使用できません。' };
     }
+    if (/[^\x20-\x7e]/.test(value)) {
+        return { error: field.label + 'は半角英数字と記号で入力してください。' };
+    }
+    if (field.minLength !== undefined && value.length < field.minLength) {
+        return { error: field.label + 'は ' + field.minLength + ' 文字以上にしてください。' };
+    }
+    if (field.maxLength !== undefined && value.length > field.maxLength) {
+        return { error: field.label + 'は ' + field.maxLength + ' 文字以内にしてください。' };
+    }
     if (field.pattern && !field.pattern.test(value)) {
         return { error: field.label + 'の形式が正しくありません。' + (field.patternHelp || '') };
     }
 
-    return { value: value };
+    return { value };
 }
 
-/** ブラウザへ渡すためのフィールド定義（正規表現などは文字列化する） */
-function publicFields() {
-    return FIELDS.map((field) => ({
+/** ブラウザへ渡すためのフィールド定義（正規表現などは渡さない） */
+function publicFields(fields) {
+    return fields.map((field) => ({
         key: field.key,
         label: field.label,
         type: field.type,
-        group: field.group,
         secret: !!field.secret,
         required: !!field.required,
-        oauth: field.oauth || null,
-        // oauth 項目はログイン中のアカウントの値に固定する（入力欄は読み取り専用、サーバーでも検証）
-        locked: !!field.oauth,
+        min: field.min,
+        max: field.max,
         placeholder: field.placeholder || '',
         help: field.help || ''
     }));
 }
 
-module.exports = { FIELDS, GROUPS, FIELD_BY_KEY, validateField, publicFields };
+module.exports = { CHANNEL_FIELDS, SHARED_FIELDS, validateField, publicFields };

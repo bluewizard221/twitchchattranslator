@@ -27,6 +27,7 @@ const channels = require('./lib/channels');
 const readiness = require('./lib/readiness');
 const lists = require('./lib/lists');
 const logRetention = require('./lib/logRetention');
+const audit = require('./lib/audit');
 const { Supervisor } = require('./lib/supervisor');
 const { createServer: createIpcServer } = require('./lib/ipc');
 const { readJson } = require('./lib/fileStore');
@@ -281,6 +282,15 @@ function createManager(options) {
             if (removed.length > 0) {
                 logger.info('古いログを削除しました: ' + dir + ' ' + removed.join(', '));
             }
+        }
+
+        // 操作の記録は 1 年（D19）
+        try {
+            const pruned = audit.prune(audit.RETENTION_DAYS);
+
+            if (pruned > 0) { logger.info('古い操作の記録を削除しました: ' + pruned + ' 件'); }
+        } catch (err) {
+            logger.error('操作の記録の整理に失敗しました: ' + err.message);
         }
     }
 

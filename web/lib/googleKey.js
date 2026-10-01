@@ -1,7 +1,6 @@
 'use strict';
 
 const fs = require('fs');
-const path = require('path');
 const paths = require('../../lib/paths');
 const { writeJsonAtomic, statSafe } = require('../../lib/fileStore');
 
@@ -54,95 +53,64 @@ function validateKeyContent(text) {
     return { ok: true, key: key, warnings: warnings };
 }
 
-/** 保存先のファイル名を config ディレクトリ配下に限定する */
-function resolveDestination(fileName) {
-    const fallback = paths.DEFAULT_GOOGLE_KEY;
-
-    if (!fileName || typeof fileName !== 'string') { return fallback; }
-
-    const base = path.basename(fileName.trim());
-
-    if (base === '' || base === '.' || base === '..') { return fallback; }
-    if (!/^[A-Za-z0-9._-]{1,80}$/.test(base)) { return fallback; }
-    if (!base.toLowerCase().endsWith('.json')) { return fallback; }
-
-    return path.join(paths.CONFIG_DIR, base);
-}
-
 /**
- * サービスアカウントキーを保存する。
- * 既存のキーは <file>.bak に退避され、パーミッションは 0600 に設定される。
+ * チャンネルのサービスアカウントキーを保存する（channels/<login>/secrets/google-key.json、0600）。
+ * 保存先はチャンネルごとに固定で、ファイル名は指定させない。古いキーの退避（.bak）も残さない（D11）。
  */
-function save(text, fileName) {
+function saveForChannel(login, text) {
     const validated = validateKeyContent(text);
 
     if (!validated.ok) { return validated; }
 
-    const destination = resolveDestination(fileName);
-
-    writeJsonAtomic(destination, validated.key, { mode: 0o600 });
+    writeJsonAtomic(paths.channel(login).googleKey, validated.key, { mode: 0o600, backup: false });
 
     return {
         ok: true,
         warnings: validated.warnings,
         projectId: validated.key.project_id,
-        clientEmail: validated.key.client_email,
-        path: relative(destination),
-        absolutePath: destination
+        clientEmail: validated.key.client_email
     };
 }
 
-/** 設定されているキーファイルの状態を調べる（秘密鍵そのものは返さない） */
-function status(configuredPath) {
-    const configured = typeof configuredPath === 'string' ? configuredPath.trim() : '';
-
-    if (configured === '') {
-        return { configured: null, exists: false, valid: false, message: 'キーファイルのパスが未設定です。' };
-    }
-
-    const absolute = path.isAbsolute(configured) ? configured : path.join(paths.ROOT, configured);
-    const stat = statSafe(absolute);
+/** チャンネルのキーの状態（秘密鍵そのものは返さない） */
+function statusForChannel(login) {
+    const file = paths.channel(login).googleKey;
+    const stat = statSafe(file);
 
     if (!stat || !stat.isFile()) {
-        return {
-            configured: configured,
-            exists: false,
-            valid: false,
-            message: 'ファイルが見つかりません: ' + absolute
-        };
+        return { exists: false, valid: false, message: 'Google Cloud のキーがまだアップロードされていません。' };
     }
 
     let parsed = null;
 
     try {
-        parsed = JSON.parse(fs.readFileSync(absolute, 'utf8'));
+        parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
     } catch (err) {
-        return {
-            configured: configured,
-            exists: true,
-            valid: false,
-            updatedAt: stat.mtime.toISOString(),
-            message: 'ファイルを JSON として読み込めませんでした。'
-        };
+        return { exists: true, valid: false, updatedAt: stat.mtime.toISOString(), message: 'キーを JSON として読み込めませんでした。' };
     }
 
     const valid = !!parsed && parsed.type === 'service_account' && !!parsed.client_email;
 
     return {
-        configured: configured,
         exists: true,
-        valid: valid,
+        valid,
         projectId: parsed && typeof parsed.project_id === 'string' ? parsed.project_id : null,
         clientEmail: parsed && typeof parsed.client_email === 'string' ? parsed.client_email : null,
-        size: stat.size,
         mode: '0' + (stat.mode & 0o777).toString(8),
         updatedAt: stat.mtime.toISOString(),
         message: valid ? null : 'サービスアカウントキーの形式ではありません。'
     };
 }
 
-function relative(file) {
-    return file.startsWith(paths.ROOT + '/') ? file.slice(paths.ROOT.length + 1) : file;
+/** チャンネルのキーを削除する。GCP 側ではキーは有効なままなので、配信者に GCP のコンソールでの削除を案内すること */
+function removeForChannel(login) {
+    const file = paths.channel(login).googleKey;
+
+    if (!fs.existsSync(file)) { return false; }
+
+    fs.unlinkSync(file);
+
+    return true;
 }
 
-module.exports = { validateKeyContent, resolveDestination, save, status, MAX_KEY_BYTES };
+module.exports = { validateKeyContent, saveForChannel, statusForChannel, removeForChannel, MAX_KEY_BYTES };

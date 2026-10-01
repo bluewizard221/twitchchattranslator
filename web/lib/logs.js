@@ -4,11 +4,19 @@ const fs = require('fs');
 const path = require('path');
 const paths = require('../../lib/paths');
 
-/** 管理画面から閲覧できるログ。ここにないファイルは読ませない */
-const LOGS = [
-    { id: 'bot', label: '翻訳 bot', file: 'twitchchattranslator.log' },
-    { id: 'webui', label: '管理画面', file: 'webui.log' },
-    { id: 'emotes', label: 'エモート自動更新', file: 'emotelistupdate.log' }
+/**
+ * 管理画面から閲覧できるログ（複数チャンネル対応版）。ここにないファイルは読ませない。
+ *
+ * - チャンネルのログ: channels/<login>/logs/ の bot のログ（配信者は自分のチャンネルだけ、運営者はすべて）
+ * - システムのログ: logs/ の管理プロセスと管理画面のログ（運営者だけ）
+ */
+const CHANNEL_LOGS = [
+    { id: 'bot', label: '翻訳 bot', file: 'twitchchattranslator.log' }
+];
+
+const SYSTEM_LOGS = [
+    { id: 'manager', label: '管理プロセス', file: 'manager.log' },
+    { id: 'webui', label: '管理画面', file: 'webui.log' }
 ];
 
 // 末尾からこのバイト数だけ読む（日次ローテーションなので通常はファイル全体が収まる）
@@ -17,37 +25,35 @@ const DEFAULT_LINES = 200;
 const MAX_LINES = 2000;
 const PROBLEM_RE = /\[(WARN|ERROR|FATAL)\]/;
 
-function find(id) {
-    return LOGS.find((def) => def.id === id) || null;
-}
+function resolve(scope, id) {
+    if (scope && scope.type === 'channel') {
+        const def = CHANNEL_LOGS.find((d) => d.id === id);
 
-function filePath(def) {
-    return path.join(paths.LOG_DIR, def.file);
-}
+        return def ? { def, dir: paths.channel(scope.login).logDir, rel: 'channels/' + scope.login + '/logs/' + def.file } : null;
+    }
+    if (scope && scope.type === 'system') {
+        const def = SYSTEM_LOGS.find((d) => d.id === id);
 
-function relative(def) {
-    return 'logs/' + def.file;
+        return def ? { def, dir: paths.LOG_DIR, rel: 'logs/' + def.file } : null;
+    }
+    return null;
 }
 
 /** ログ一覧（存在するか・サイズ・最終更新） */
-function describeAll() {
-    return LOGS.map((def) => {
+function describe(scope) {
+    const defs = scope.type === 'system' ? SYSTEM_LOGS : CHANNEL_LOGS;
+
+    return defs.map((def) => {
+        const target = resolve(scope, def.id);
         let stat = null;
 
         try {
-            stat = fs.statSync(filePath(def));
+            stat = fs.statSync(path.join(target.dir, def.file));
         } catch (err) {
             // 未作成
         }
 
-        return {
-            id: def.id,
-            label: def.label,
-            path: relative(def),
-            exists: !!stat,
-            size: stat ? stat.size : 0,
-            updatedAt: stat ? stat.mtime.toISOString() : null
-        };
+        return { id: def.id, label: def.label, path: target.rel, exists: !!stat, size: stat ? stat.size : 0, updatedAt: stat ? stat.mtime.toISOString() : null };
     });
 }
 
@@ -69,24 +75,26 @@ function mask(line) {
 
 /**
  * ログの末尾を返す。
- * @param {string} id      LOGS の id
+ * @param {{ type: 'channel', login: string } | { type: 'system' }} scope
+ * @param {string} id
  * @param {{ lines?: number|string, level?: string }} options  level === 'warn' で WARN/ERROR のみ
- * @returns {object|null}  未知の id なら null
+ * @returns {object|null} 未知の id なら null
  */
-function tail(id, options) {
-    const def = find(id);
+function tail(scope, id, options) {
+    const target = resolve(scope, id);
 
-    if (!def) { return null; }
+    if (!target) { return null; }
 
     const opts = options || {};
     const maxLines = toLineCount(opts.lines);
     const problemsOnly = opts.level === 'warn';
-    const base = { id: def.id, label: def.label, path: relative(def), problemsOnly: problemsOnly };
+    const file = path.join(target.dir, target.def.file);
+    const base = { id: target.def.id, label: target.def.label, path: target.rel, problemsOnly };
 
     let stat;
 
     try {
-        stat = fs.statSync(filePath(def));
+        stat = fs.statSync(file);
     } catch (err) {
         return Object.assign(base, {
             exists: false,
@@ -98,7 +106,7 @@ function tail(id, options) {
     const start = Math.max(0, stat.size - MAX_READ_BYTES);
     const length = stat.size - start;
     const buffer = Buffer.alloc(length);
-    const fd = fs.openSync(filePath(def), 'r');
+    const fd = fs.openSync(file, 'r');
 
     try {
         fs.readSync(fd, buffer, 0, length, start);
@@ -126,4 +134,4 @@ function tail(id, options) {
     });
 }
 
-module.exports = { LOGS, describeAll, tail, DEFAULT_LINES, MAX_LINES };
+module.exports = { CHANNEL_LOGS, SYSTEM_LOGS, describe, tail, DEFAULT_LINES, MAX_LINES };

@@ -2,48 +2,52 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const path = require('path');
-const { useTempRoot } = require('./helpers');
-
-const ROOT = useTempRoot();
-
+const { EventEmitter } = require('events');
 const bot = require('../web/lib/bot');
 
-function writePid(content) {
-    const file = path.join(ROOT, 'test.pid');
-    require('fs').writeFileSync(file, content);
-    return file;
+/** process の代わり（IPC の口だけ） */
+function fakeChannel(reply) {
+    const channel = new EventEmitter();
+
+    channel.connected = true;
+    channel.sent = [];
+    channel.send = (msg) => {
+        channel.sent.push(msg);
+        setImmediate(() => channel.emit('message', reply(msg)));
+    };
+
+    return channel;
 }
 
-test('通常の PID はそのまま読み取る', () => {
-    const result = bot.readPid(writePid('12345\n'));
+test('管理プロセスに依頼し、応答を返す', async () => {
+    const channel = fakeChannel((msg) => ({ type: 'response', id: msg.id, ok: true, result: { echo: msg.action, payload: msg.payload } }));
+    const client = bot.createManagerClient(channel);
 
-    assert.strictEqual(result.ok, true);
-    assert.strictEqual(result.pid, 12345);
+    assert.strictEqual(client.available(), true);
+    assert.deepStrictEqual(await client.request('channel.stop', { login: 'alice' }), { echo: 'channel.stop', payload: { login: 'alice' } });
 });
 
-test('PID 1 が bot 自身なら許可する（コンテナ内で bot が PID 1 の場合）', () => {
-    const result = bot.readPid(writePid('1'), { isBotProcess: () => true });
+test('管理プロセスのエラーは例外になる', async () => {
+    const channel = fakeChannel((msg) => ({ type: 'response', id: msg.id, ok: false, error: '登録されていないチャンネルです' }));
+    const client = bot.createManagerClient(channel);
 
-    assert.strictEqual(result.ok, true);
-    assert.strictEqual(result.pid, 1);
+    await assert.rejects(client.request('channel.stop', { login: 'x' }), /登録されていない/);
 });
 
-test('PID 1 が bot でなければ拒否する（ホスト上の init に送らない）', () => {
-    const result = bot.readPid(writePid('1'), { isBotProcess: () => false });
+test('切断されていれば使えない', async () => {
+    const channel = fakeChannel(() => ({}));
 
-    assert.strictEqual(result.ok, false);
-    assert.ok(result.error.indexOf('PID 1') !== -1);
+    channel.connected = false;
+
+    const client = bot.createManagerClient(channel);
+
+    assert.strictEqual(client.available(), false);
+    await assert.rejects(client.request('status'), /接続されていません/);
 });
 
-test('既定の判定では、このテストを動かしているマシンの PID 1（init）を bot とみなさない', () => {
-    const result = bot.readPid(writePid('1'));
+test('管理プロセスなしで起動したときの代わりは、どの依頼も分かりやすく失敗する', async () => {
+    const none = bot.unavailableManager();
 
-    assert.strictEqual(result.ok, false);
-});
-
-test('0・負数・数字以外は不正として拒否する', () => {
-    for (const content of ['0', '-5', 'abc', '']) {
-        assert.strictEqual(bot.readPid(writePid(content)).ok, false, JSON.stringify(content));
-    }
+    assert.strictEqual(none.available(), false);
+    await assert.rejects(none.request('status'), /manager\.js/);
 });

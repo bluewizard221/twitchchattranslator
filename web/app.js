@@ -10,6 +10,8 @@ const { requireAuth, ensureCsrfToken } = require('./middleware/auth');
 const { rateLimit } = require('./middleware/rateLimit');
 const { createRoles } = require('./lib/roles');
 const { BoundedMemoryStore } = require('./lib/sessionStore');
+const { unavailableManager } = require('./lib/bot');
+const twitch = require('./lib/twitch');
 
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
@@ -17,9 +19,15 @@ const PUBLIC_DIR = path.join(__dirname, 'public');
  * 管理画面の Express アプリケーションを組み立てる。
  * @param {object} config web/lib/webConfig.load() の戻り値
  * @param {object} logger log4js 互換のロガー
+ * @param {object} [options]
+ * @param {object} [options.manager] 管理プロセスへの依頼口（web/lib/bot.js）。テストでは偽物を渡す
+ * @param {function} [options.revokeToken] トークンの無効化（token => Promise<boolean>）。テスト用
  */
-function createApp(config, logger) {
+function createApp(config, logger, options) {
+    const opts = options || {};
     const app = express();
+    const manager = opts.manager || unavailableManager();
+    const revokeToken = opts.revokeToken || ((token) => twitch.revokeToken({ clientId: config.clientId, token }));
     const roles = createRoles(config);
     const sessionStore = new BoundedMemoryStore({
         maxSessions: config.maxSessions,
@@ -29,6 +37,7 @@ function createApp(config, logger) {
     // チャンネルの削除時にセッションを無効にするなど、ほかの処理から使えるようにしておく
     app.locals.roles = roles;
     app.locals.sessionStore = sessionStore;
+    app.locals.manager = manager;
 
     app.disable('x-powered-by');
 
@@ -77,7 +86,7 @@ function createApp(config, logger) {
     });
 
     // ログイン処理（認証不要。公開すると誰でも呼べるので回数制限をかける）
-    app.use('/auth', rateLimit({ max: config.rateLimitAuthPerMinute }), createAuthRouter(config, logger, roles));
+    app.use('/auth', rateLimit({ max: config.rateLimitAuthPerMinute }), createAuthRouter(config, logger, roles, { manager }));
 
     // 画面
     app.get('/', requireAuth(roles), (req, res) => {
@@ -95,7 +104,8 @@ function createApp(config, logger) {
     });
 
     // API（すべてログイン必須）
-    app.use('/api', rateLimit({ max: config.rateLimitApiPerMinute }), requireAuth(roles), createApiRouter(config, logger));
+    app.use('/api', rateLimit({ max: config.rateLimitApiPerMinute }), requireAuth(roles),
+        createApiRouter(config, logger, { roles, manager, sessionStore, revokeToken }));
 
     // CSS / JS などの静的ファイル
     app.use(express.static(PUBLIC_DIR, { index: false, dotfiles: 'ignore', maxAge: '5m' }));

@@ -4,10 +4,11 @@
 /**
  * twitchchattranslator 管理画面
  *
- *   起動:  npm run web
+ *   起動:  manager.js が子プロセスとして起動する（単独で起動する場合は npm run web。bot の操作はできない）
  *
- * Twitch OAuth でログインし、設定ファイル・各種リスト・Google Cloud のキーを
- * ブラウザから編集するための管理サーバーです。
+ * Twitch OAuth でログインし、運営者はチャンネルの登録・削除と共通の設定を、
+ * 配信者は自分のチャンネルの設定・リスト・bot アカウント・Google Cloud のキーを扱う管理サーバーです。
+ * 通常は manager.js の子プロセスとして起動され、bot の操作は IPC で管理プロセスに依頼します。
  */
 
 const log4js = require('log4js');
@@ -16,6 +17,7 @@ const paths = require('../lib/paths');
 const webConfig = require('./lib/webConfig');
 const { createApp } = require('./app');
 const { loadOperators } = require('./lib/operators');
+const { createManagerClient, unavailableManager } = require('./lib/bot');
 
 log4js.configure({
     appenders: {
@@ -27,15 +29,17 @@ log4js.configure({
 
 const logger = log4js.getLogger('webui');
 const config = webConfig.load();
-const app = createApp(config, logger);
+// 管理プロセス（manager.js）の子プロセスとして起動されたときだけ IPC がある
+const manager = typeof process.send === 'function' ? createManagerClient(process) : unavailableManager();
+const app = createApp(config, logger, { manager });
 
 const server = app.listen(config.port, config.host, () => {
     logger.info('管理画面を起動しました: http://' + config.host + ':' + config.port + '/');
     logger.info('プロジェクトディレクトリ: ' + paths.ROOT);
     logger.info('OAuth リダイレクト URI: ' + config.redirectUri);
 
-    if (config.usingBotCredentials) {
-        logger.info('Twitch アプリの認証情報は bot 設定（config/default.json など）から流用しています。');
+    if (!manager.available()) {
+        logger.warn('管理プロセスに接続されていません。bot の起動・停止などはできません（manager.js から起動してください）。');
     }
 
     logger.info('運営者: ' + (loadOperators(config.allowedUsers).join(', ') || 'なし') + '（配信者は登録済みのチャンネルのログイン名）');

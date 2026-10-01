@@ -1,115 +1,31 @@
 'use strict';
 
-const fs = require('fs');
-const path = require('path');
-const paths = require('../../lib/paths');
-
-/** /proc/<pid>/cmdline から、そのプロセスが bot（twitchchattranslator.js）かどうかを調べる */
-function isBotProcess(pid) {
-    try {
-        return fs.readFileSync('/proc/' + pid + '/cmdline', 'utf8').indexOf('twitchchattranslator') !== -1;
-    } catch (err) {
-        // /proc がない環境（Linux 以外など）では確認できないので bot とはみなさない
-        return false;
-    }
-}
+const { createClient } = require('../../lib/ipc');
 
 /**
- * pidFile に書かれたプロセス ID を読み取る。
- * PID 1 は通常 init なので拒否するが、コンテナ内で bot 自身が PID 1 の場合は許可する。
+ * 管理プロセス（manager.js）への操作の依頼。
+ * 管理画面は管理プロセスの子プロセスとして動き、IPC で bot の起動・停止・再起動・リストの読み直しなどを頼む。
+ * pid ファイルと SIGHUP を使う旧方式は廃止した（コンテナ内では bot が PID 1 だったため扱いが難しかった）。
+ *
+ * テストでは createManagerClient の代わりに、同じ形（request / available）の偽物を渡す。
  */
-function readPid(pidFile, options) {
-    const checkBotProcess = (options && options.isBotProcess) || isBotProcess;
-    const configured = typeof pidFile === 'string' ? pidFile.trim() : '';
+function createManagerClient(channel) {
+    const client = createClient(channel || process, { timeoutMs: 30000 });
 
-    if (configured === '') {
-        return { ok: false, error: 'PID ファイルのパスが設定されていません。' };
-    }
-
-    const absolute = path.isAbsolute(configured) ? configured : path.join(paths.ROOT, configured);
-
-    let raw;
-
-    try {
-        raw = fs.readFileSync(absolute, 'utf8');
-    } catch (err) {
-        return {
-            ok: false,
-            path: absolute,
-            error: err.code === 'ENOENT'
-                ? 'PID ファイルが見つかりません（bot が起動していない可能性があります）。'
-                : 'PID ファイルを読み込めません: ' + err.message
-        };
-    }
-
-    const pid = Number(raw.trim());
-
-    if (!Number.isInteger(pid) || pid < 1) {
-        return { ok: false, path: absolute, error: 'PID ファイルの内容が不正です: ' + raw.trim().slice(0, 40) };
-    }
-
-    if (pid === 1 && !checkBotProcess(1)) {
-        return { ok: false, path: absolute, error: 'PID 1 は bot のプロセスではないため、シグナルを送りません。' };
-    }
-
-    return { ok: true, pid: pid, path: absolute };
+    return {
+        available: client.available,
+        request: client.request
+    };
 }
 
-/** bot プロセスが生きているかを調べる */
-function status(pidFile) {
-    const result = readPid(pidFile);
-
-    if (!result.ok) {
-        return { running: false, pid: null, path: result.path || null, message: result.error };
-    }
-
-    try {
-        process.kill(result.pid, 0);
-        return { running: true, pid: result.pid, path: result.path, message: null };
-    } catch (err) {
-        if (err.code === 'EPERM') {
-            // プロセスは存在するがシグナルを送る権限がない
-            return {
-                running: true,
-                pid: result.pid,
-                path: result.path,
-                message: 'プロセスは存在しますが、この実行ユーザーからはシグナルを送れません。'
-            };
+/** 管理プロセスがない（単独で起動した）ときの代わり。どの操作も分かりやすいエラーにする */
+function unavailableManager() {
+    return {
+        available: () => false,
+        request: async () => {
+            throw new Error('管理プロセスに接続されていません。管理画面は manager.js から起動してください。');
         }
-
-        return {
-            running: false,
-            pid: result.pid,
-            path: result.path,
-            message: 'PID ' + result.pid + ' のプロセスは動作していません。'
-        };
-    }
+    };
 }
 
-/**
- * bot に SIGHUP を送り、リストファイルを再読み込みさせる。
- * （twitchchattranslator.js は SIGHUP で ignoreusers / ignoreline / emoticons を読み直す）
- */
-function reload(pidFile) {
-    const result = readPid(pidFile);
-
-    if (!result.ok) {
-        return { ok: false, error: result.error };
-    }
-
-    try {
-        process.kill(result.pid, 'SIGHUP');
-        return { ok: true, pid: result.pid, message: 'PID ' + result.pid + ' に SIGHUP を送信しました。' };
-    } catch (err) {
-        if (err.code === 'ESRCH') {
-            return { ok: false, error: 'PID ' + result.pid + ' のプロセスが見つかりません。bot が停止している可能性があります。' };
-        }
-        if (err.code === 'EPERM') {
-            return { ok: false, error: 'PID ' + result.pid + ' にシグナルを送る権限がありません。' };
-        }
-
-        return { ok: false, error: 'シグナルの送信に失敗しました: ' + err.message };
-    }
-}
-
-module.exports = { readPid, status, reload };
+module.exports = { createManagerClient, unavailableManager };
