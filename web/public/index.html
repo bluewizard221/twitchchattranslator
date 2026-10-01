@@ -30,6 +30,7 @@
         <button type="button" class="tab" data-view="lists">翻訳除外リスト</button>
         <button type="button" class="tab" data-view="emotes">エモート</button>
         <button type="button" class="tab" data-view="google">Google Cloud キー</button>
+        <button type="button" class="tab" data-view="logs">ログ</button>
     </nav>
 </header>
 
@@ -71,7 +72,8 @@
             <div>
                 <h2>基本設定</h2>
                 <p>保存すると <code>config/local.json</code> に書き込まれます。
-                   <code>config/default.json</code> は変更せず、同じ項目があれば <code>local.json</code> の値が優先されます。</p>
+                   <code>config/default.json</code> は変更せず、同じ項目があれば <code>local.json</code> の値が優先されます。
+                   対象チャンネルと配信者 ID は、ログイン中の Twitch アカウントのものしか設定できません。</p>
             </div>
             <button type="button" class="btn btn-small" id="fillFromOauth">Twitch ログイン情報から入力</button>
         </div>
@@ -228,6 +230,35 @@
         <table class="simple" id="googleStatus">
             <tbody><tr><td class="loading">読み込み中…</td></tr></tbody>
         </table>
+    </div>
+</section>
+
+<!-- ============================ ログ ============================ -->
+<section id="view-logs" class="view hidden">
+    <div class="panel">
+        <div class="panel-head">
+            <div>
+                <h2>ログ</h2>
+                <p>bot・管理画面・エモート自動更新のログ（当日分）の末尾を表示します。
+                   翻訳を投稿できなかった場合（チャンネル主が bot を許可していないなど）も、ここに記録されます。</p>
+            </div>
+            <button type="button" class="btn btn-small" id="refreshLogs">再読み込み</button>
+        </div>
+
+        <div class="log-controls">
+            <select id="logSelect" aria-label="表示するログ"></select>
+            <select id="logLines" aria-label="表示する行数">
+                <option value="100">100 行</option>
+                <option value="200" selected>200 行</option>
+                <option value="500">500 行</option>
+                <option value="2000">2000 行</option>
+            </select>
+            <label class="check"><input type="checkbox" id="logProblemsOnly"> 警告・エラーのみ</label>
+        </div>
+
+        <div id="logNotices"></div>
+        <pre class="log-output" id="logOutput" tabindex="0" aria-label="ログの内容"></pre>
+        <div class="list-meta"><span class="note" id="logMeta"></span></div>
     </div>
 </section>
 

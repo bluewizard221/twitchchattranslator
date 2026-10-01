@@ -140,7 +140,8 @@
         config: loadConfig,
         lists: function () { return loadLists(['ignoreusers', 'ignoreline']); },
         emotes: function () { return loadLists(['emoticons']).then(updateEmoteTarget); },
-        google: loadGoogleKey
+        google: loadGoogleKey,
+        logs: loadLogs
     };
 
     function showView(name) {
@@ -196,7 +197,11 @@
                     list.error ? list.error : '最終更新 ' + formatDateTime(list.updatedAt)));
             });
 
-            if (data.missingRequired.length > 0) {
+            if (data.channelMatchesLogin === false) {
+                setNotice(notices, 'error', '対象チャンネル（' + (data.channel || '—') + '）がログイン中のアカウント（' +
+                    data.loginChannel + '）と異なります。bot は設定ファイルのチャンネルで動作します。' +
+                    '「基本設定」で「ログイン情報から」を使って保存し、bot を再起動してください。');
+            } else if (data.missingRequired.length > 0) {
                 setNotice(notices, 'warn', '未設定の必須項目があります。「基本設定」タブで入力してください。',
                     data.missingRequired.map(function (item) { return item.label + '（' + item.reason + '）'; }));
             } else {
@@ -298,6 +303,12 @@
         input.type = field.type === 'number' ? 'number' : (field.secret ? 'password' : 'text');
         input.autocomplete = field.secret ? 'new-password' : 'off';
         input.spellcheck = false;
+
+        // ログイン中のアカウントに固定する項目は手入力させない（「ログイン情報から」でのみ入力）
+        if (field.locked) {
+            input.readOnly = true;
+            input.classList.add('locked-input');
+        }
 
         if (field.secret) {
             input.placeholder = value && value.hasValue
@@ -677,6 +688,66 @@
     }
 
     // ------------------------------------------------------------------
+    // ログ
+    // ------------------------------------------------------------------
+
+    function loadLogs() {
+        return api('GET', '/api/logs').then(function (data) {
+            var select = document.getElementById('logSelect');
+            var current = select.value;
+
+            clear(select);
+
+            data.logs.forEach(function (log) {
+                var option = el('option', null, log.label + '（' + log.path + (log.exists ? '' : '・未作成') + '）');
+
+                option.value = log.id;
+                select.appendChild(option);
+            });
+
+            if (current) { select.value = current; }
+
+            return loadLog();
+        });
+    }
+
+    function loadLog() {
+        var id = document.getElementById('logSelect').value || 'bot';
+        var lines = document.getElementById('logLines').value;
+        var problemsOnly = document.getElementById('logProblemsOnly').checked;
+        var url = '/api/logs/' + encodeURIComponent(id) + '?lines=' + encodeURIComponent(lines) +
+            (problemsOnly ? '&level=warn' : '');
+
+        return api('GET', url).then(function (data) {
+            var output = document.getElementById('logOutput');
+            var notices = document.getElementById('logNotices');
+            var meta = document.getElementById('logMeta');
+
+            if (!data.exists) {
+                setNotice(notices, 'info', data.error || 'ログファイルはまだありません。');
+                output.textContent = '';
+                meta.textContent = data.path;
+                return;
+            }
+
+            if (data.lines.length === 0) {
+                setNotice(notices, 'info', problemsOnly ? '警告・エラーはありません。' : 'ログは空です。');
+            } else if (data.truncated) {
+                setNotice(notices, 'info', 'ファイルが大きいため、末尾の一部だけを読み込んでいます。');
+            } else {
+                clear(notices);
+            }
+
+            output.textContent = data.lines.join('\n');
+            output.scrollTop = output.scrollHeight;
+
+            meta.textContent = data.path + '・' + data.lines.length + ' 行を表示' +
+                (problemsOnly ? '（警告・エラーのみ ' + data.matched + ' 件中）' : '') +
+                '・最終更新 ' + formatDateTime(data.updatedAt);
+        });
+    }
+
+    // ------------------------------------------------------------------
     // 初期化
     // ------------------------------------------------------------------
 
@@ -777,6 +848,19 @@
         });
 
         fileInput.addEventListener('change', function () { handleKeyFile(fileInput.files[0]); });
+
+        var reloadLog = function () {
+            loadLog().catch(function (err) { toast('error', err.message); });
+        };
+
+        document.getElementById('logSelect').addEventListener('change', reloadLog);
+        document.getElementById('logLines').addEventListener('change', reloadLog);
+        document.getElementById('logProblemsOnly').addEventListener('change', reloadLog);
+        document.getElementById('refreshLogs').addEventListener('click', function (event) {
+            busy(event.target, true, '読み込み中…');
+            loadLogs().catch(function (err) { toast('error', err.message); })
+                .then(function () { busy(event.target, false); });
+        });
 
         document.getElementById('uploadKey').addEventListener('click', uploadKey);
         document.getElementById('refreshGoogle').addEventListener('click', function (event) {

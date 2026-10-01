@@ -108,10 +108,16 @@ npm run web
 <dt>bot への反映</dt>
   <dd>ダッシュボードの「bot に反映する」で、稼働中の bot へ SIGHUP を送りリストを再読み込みさせます
       （チャットの !refreshignoreuser などと同じ効果です）。基本設定の変更を反映するには bot の再起動が必要です。</dd>
+<dt>ログ</dt>
+  <dd>bot（logs/twitchchattranslator.log）・管理画面（logs/webui.log）・エモート自動更新（logs/emotelistupdate.log）の
+      当日分の末尾を表示します。「警告・エラーのみ」で絞り込めます。翻訳を投稿できなかった場合
+      （チャンネル主が bot を許可していないなど）もここで確認できます。トークンらしき文字列は伏せて表示します。</dd>
 </dl>
 
-<code>twitchChannel</code> と <code>twitchBroadcasterId</code> は、ログインした Twitch アカウントの情報から
-「ログイン情報から」ボタンで自動入力できます。
+<code>twitchChannel</code> と <code>twitchBroadcasterId</code> は、**ログイン中の Twitch アカウントのものしか設定できません**
+（他人のチャンネルに翻訳を投稿しないため）。入力欄は読み取り専用で、「ログイン情報から」ボタンで入力します。
+設定ファイルを直接書き換えてログイン中のアカウントと食い違った場合は、ダッシュボードに警告が表示され、
+エモートの自動取得も行いません。
 
 ### 管理画面の設定
 

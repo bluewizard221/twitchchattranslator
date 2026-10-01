@@ -423,3 +423,161 @@ test('セキュリティ関連のヘッダーが付与される', async () => {
     assert.strictEqual(page.headers.get('x-content-type-options'), 'nosniff');
     assert.strictEqual(page.headers.get('x-powered-by'), null);
 });
+
+// ------------------------------------------------------------------
+// 対象チャンネルはログイン中のアカウントに固定する
+// ------------------------------------------------------------------
+
+test('ログイン中のアカウント以外のチャンネル・配信者 ID は保存できない', async () => {
+    const jar = newJar();
+    const session = await login(jar);
+
+    const result = await request(jar, 'PUT', '/api/config', {
+        headers: { 'X-CSRF-Token': session.csrfToken },
+        body: { values: { twitchChannel: 'someone_else', twitchBroadcasterId: '999999', coolDownCount: '7' } }
+    });
+
+    assert.strictEqual(result.status, 400);
+    assert.ok(result.body.fieldErrors.twitchChannel.indexOf('streamer_one') !== -1);
+    assert.ok(result.body.fieldErrors.twitchBroadcasterId);
+
+    // 1 項目でも拒否されたら、他の項目も保存しない
+    const local = readJson(path.join(ROOT, 'config', 'local.json'));
+
+    assert.strictEqual(local.config.twitchChannel, 'streamer_one');
+    assert.notStrictEqual(local.config.coolDownCount, 7);
+    assert.ok(logs.some(([level, msg]) => level === 'warn' && msg.indexOf('チャンネル設定を拒否') !== -1));
+});
+
+test('ログイン名は大文字小文字を区別せずに受け付ける', async () => {
+    const jar = newJar();
+    const session = await login(jar);
+
+    const result = await request(jar, 'PUT', '/api/config', {
+        headers: { 'X-CSRF-Token': session.csrfToken },
+        body: { values: { twitchChannel: 'Streamer_One' } }
+    });
+
+    assert.strictEqual(result.status, 200);
+});
+
+test('エモート取得はリクエストで指定したチャンネルを無視し、設定済みのチャンネルを使う', async () => {
+    const jar = newJar();
+    const session = await login(jar);
+
+    await request(jar, 'PUT', '/api/config', {
+        headers: { 'X-CSRF-Token': session.csrfToken },
+        body: { values: { twitchChannel: 'streamer_one', twitchBroadcasterId: '111222' } }
+    });
+
+    emoteRoutes = { 'https://api.betterttv.net/3/cached/emotes/global': [{ code: 'GlobalEmote' }] };
+
+    try {
+        const result = await request(jar, 'POST', '/api/emotes/refresh', {
+            headers: { 'X-CSRF-Token': session.csrfToken },
+            body: { mode: 'merge', save: false, channel: 'someone_else', userId: '999999' }
+        });
+
+        assert.strictEqual(result.status, 200);
+        assert.strictEqual(result.body.channel, 'streamer_one');
+        assert.strictEqual(result.body.userId, '111222');
+    } finally {
+        emoteRoutes = {};
+    }
+});
+
+test('設定ファイルのチャンネルがログイン中のアカウントと異なると、エモート取得を拒否し概要で警告する', async () => {
+    const jar = newJar();
+    const session = await login(jar);
+    const localPath = path.join(ROOT, 'config', 'local.json');
+    const original = readJson(localPath);
+
+    // 設定ファイルを直接書き換えた場合を再現する
+    writeJson(localPath, { config: Object.assign({}, original.config, { twitchChannel: 'someone_else' }) });
+
+    try {
+        const refresh = await request(jar, 'POST', '/api/emotes/refresh', {
+            headers: { 'X-CSRF-Token': session.csrfToken },
+            body: { mode: 'merge' }
+        });
+
+        assert.strictEqual(refresh.status, 409);
+
+        const overview = await request(jar, 'GET', '/api/overview');
+
+        assert.strictEqual(overview.body.channelMatchesLogin, false);
+        assert.strictEqual(overview.body.loginChannel, 'streamer_one');
+    } finally {
+        writeJson(localPath, original);
+    }
+
+    const restored = await request(jar, 'GET', '/api/overview');
+
+    assert.strictEqual(restored.body.channelMatchesLogin, true);
+});
+
+test('設定 API は固定項目に locked を付けて返す', async () => {
+    const jar = newJar();
+
+    await login(jar);
+
+    const result = await request(jar, 'GET', '/api/config');
+    const locked = result.body.fields.filter((field) => field.locked).map((field) => field.key).sort();
+
+    assert.deepStrictEqual(locked, ['twitchBroadcasterId', 'twitchChannel']);
+});
+
+// ------------------------------------------------------------------
+// ログの閲覧
+// ------------------------------------------------------------------
+
+test('ログは決められたファイルだけを末尾から読める', async () => {
+    const jar = newJar();
+
+    await login(jar);
+
+    const fs = require('fs');
+    const logDir = path.join(ROOT, 'logs');
+
+    fs.mkdirSync(logDir, { recursive: true });
+    fs.writeFileSync(path.join(logDir, 'twitchchattranslator.log'), [
+        '[2026-10-01T10:00:00.000] [INFO] system - Connected to twitch chat channel',
+        '[2026-10-01T10:00:01.000] [ERROR] system - Helix refused to post: channel:bot',
+        '[2026-10-01T10:00:02.000] [INFO] system - password oauth:abcdef0123456789',
+        '[2026-10-01T10:00:03.000] [WARN] system - something odd'
+    ].join('\n') + '\n');
+
+    const list = await request(jar, 'GET', '/api/logs');
+
+    assert.strictEqual(list.status, 200);
+    assert.deepStrictEqual(list.body.logs.map((log) => log.id), ['bot', 'webui', 'emotes']);
+    assert.strictEqual(list.body.logs[0].exists, true);
+
+    const last2 = await request(jar, 'GET', '/api/logs/bot?lines=2');
+
+    assert.strictEqual(last2.body.lines.length, 2);
+    assert.ok(last2.body.lines[1].indexOf('something odd') !== -1);
+    // トークンらしき文字列は伏せる
+    assert.ok(last2.body.lines[0].indexOf('oauth:***') !== -1);
+    assert.strictEqual(JSON.stringify(last2.body).indexOf('abcdef0123456789'), -1);
+
+    const problems = await request(jar, 'GET', '/api/logs/bot?level=warn');
+
+    assert.strictEqual(problems.body.lines.length, 2);
+    assert.ok(problems.body.lines.every((line) => /\[(WARN|ERROR)\]/.test(line)));
+
+    const missing = await request(jar, 'GET', '/api/logs/emotes');
+
+    assert.strictEqual(missing.status, 200);
+    assert.strictEqual(missing.body.exists, false);
+
+    assert.strictEqual((await request(jar, 'GET', '/api/logs/..%2F..%2Fconfig%2Fdefault.json')).status, 404);
+    assert.strictEqual((await request(jar, 'GET', '/api/logs/unknown')).status, 404);
+});
+
+test('未ログインではログを読めない', async () => {
+    const jar = newJar();
+
+    assert.strictEqual((await request(jar, 'GET', '/api/logs')).status, 401);
+    assert.strictEqual((await request(jar, 'GET', '/api/logs/bot')).status, 401);
+});

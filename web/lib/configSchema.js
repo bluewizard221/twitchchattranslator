@@ -47,7 +47,7 @@ const FIELDS = [
         pattern: /^[a-zA-Z0-9_]{3,25}$/,
         patternHelp: '半角英数字とアンダースコアのみ、3〜25 文字で入力してください。',
         placeholder: 'my_channel',
-        help: '翻訳 bot を動かすチャンネル名（表示名ではなくアルファベットの方）。ログイン中の Twitch アカウントから自動入力できます。'
+        help: '翻訳 bot を動かすチャンネル名（表示名ではなくアルファベットの方）。他人のチャンネルに翻訳を投稿しないよう、ログイン中の Twitch アカウントのチャンネルしか設定できません。「ログイン情報から」で入力してください。'
     },
     {
         key: 'twitchBroadcasterId',
@@ -59,7 +59,7 @@ const FIELDS = [
         pattern: /^[0-9]{1,20}$/,
         patternHelp: '数字のみで入力してください。',
         placeholder: '123456789',
-        help: '配信チャンネル所有者の数値 ID。ログイン中の Twitch アカウントから自動入力できます。'
+        help: '配信チャンネル所有者の数値 ID。ログイン中の Twitch アカウントの ID しか設定できません。「ログイン情報から」で入力してください。'
     },
     {
         key: 'twitchClientId',
@@ -216,6 +216,8 @@ function publicFields() {
         secret: !!field.secret,
         required: !!field.required,
         oauth: field.oauth || null,
+        // oauth 項目はログイン中のアカウントの値に固定する（入力欄は読み取り専用、サーバーでも検証）
+        locked: !!field.oauth,
         placeholder: field.placeholder || '',
         help: field.help || ''
     }));

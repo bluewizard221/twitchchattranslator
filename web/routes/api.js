@@ -8,6 +8,7 @@ const lists = require('../../lib/lists');
 const emotes = require('../../lib/emotes');
 const googleKey = require('../lib/googleKey');
 const bot = require('../lib/bot');
+const logs = require('../lib/logs');
 const { readJson, writeJsonAtomic } = require('../../lib/fileStore');
 const { requireCsrf } = require('../middleware/auth');
 
@@ -44,6 +45,15 @@ function createApiRouter(config, logger) {
     });
 
     router.put('/config', (req, res) => {
+        // 対象チャンネルはログイン中のアカウントのものしか設定させない（他人のチャンネルへの投稿を防ぐ）
+        const lockErrors = loginLockedErrors(req.body && req.body.values, req.session.user);
+
+        if (lockErrors) {
+            logger.warn('ログイン中のアカウント以外のチャンネル設定を拒否しました [' + req.session.user.login + '] 項目: ' +
+                Object.keys(lockErrors).join(', '));
+            return res.status(400).json({ error: '入力内容を確認してください。', fieldErrors: lockErrors });
+        }
+
         const result = configStore.saveLocal(req.body && req.body.values);
 
         if (!result.ok) {
@@ -117,13 +127,21 @@ function createApiRouter(config, logger) {
         const body = req.body || {};
         const values = configStore.usableValues();
 
-        const channel = String(body.channel || values.twitchChannel || '').trim();
-        const userId = String(body.userId || values.twitchBroadcasterId || '').trim();
+        // 対象は設定済みのチャンネルのみ（リクエストでチャンネルを指定させない）
+        const channel = String(values.twitchChannel || '').trim();
+        const userId = String(values.twitchBroadcasterId || '').trim();
         const mode = body.mode === 'replace' ? 'replace' : 'merge';
         const save = body.save !== false;
 
         if (!channel) {
             return res.status(400).json({ error: '対象チャンネル名が設定されていません。先に「基本設定」で設定してください。' });
+        }
+
+        if (!matchesLogin(values, req.session.user)) {
+            return res.status(409).json({
+                error: '対象チャンネル（' + channel + '）がログイン中のアカウント（' + req.session.user.login +
+                    '）と異なるため、エモートを取得できません。「基本設定」でログイン中のアカウントを対象にしてください。'
+            });
         }
 
         let fetched;
@@ -285,6 +303,9 @@ function createApiRouter(config, logger) {
         res.json({
             channel: values.twitchChannel || null,
             broadcasterId: values.twitchBroadcasterId || null,
+            // config/default.json を直接書き換えた場合などに、ログイン中のアカウントと食い違うことがある
+            channelMatchesLogin: matchesLogin(values, req.session.user),
+            loginChannel: req.session.user.login,
             botUserName: values.twitchUserName || null,
             missingRequired: missing,
             lists: listSummary,
@@ -295,7 +316,67 @@ function createApiRouter(config, logger) {
         });
     });
 
+    // ------------------------------------------------------------------
+    // ログの閲覧（読み取りのみ。LOGS に登録したファイルだけ）
+    // ------------------------------------------------------------------
+    router.get('/logs', (req, res) => {
+        res.json({ logs: logs.describeAll(), defaultLines: logs.DEFAULT_LINES, maxLines: logs.MAX_LINES });
+    });
+
+    router.get('/logs/:id', (req, res) => {
+        const result = logs.tail(req.params.id, { lines: req.query.lines, level: req.query.level });
+
+        if (!result) {
+            return res.status(404).json({ error: '不明なログです。' });
+        }
+
+        res.json(result);
+    });
+
     return router;
+}
+
+/**
+ * ログイン中のアカウントに固定する項目（configSchema の oauth 指定がある項目）の検査。
+ * 空欄（local.json の値を取り消す）は許可し、ログイン中のアカウントと異なる値だけを拒否する。
+ * @returns {object|null} 項目ごとのエラー。問題がなければ null
+ */
+function loginLockedErrors(values, user) {
+    if (!values || typeof values !== 'object' || !user) { return null; }
+
+    const errors = {};
+
+    for (const field of configSchema.FIELDS) {
+        if (!field.oauth || !Object.prototype.hasOwnProperty.call(values, field.key)) { continue; }
+
+        const raw = values[field.key];
+        const value = raw === null || raw === undefined ? '' : String(raw).trim();
+
+        if (value === '') { continue; }
+
+        const expected = field.oauth === 'login' ? String(user.login) : String(user.id);
+        const same = field.oauth === 'login' ? value.toLowerCase() === expected.toLowerCase() : value === expected;
+
+        if (!same) {
+            errors[field.key] = field.label + 'は、ログイン中のアカウント（' + user.login + '）のものしか設定できません。' +
+                '「ログイン情報から」で入力してください。';
+        }
+    }
+
+    return Object.keys(errors).length > 0 ? errors : null;
+}
+
+/** 設定済みのチャンネル（と配信者 ID）がログイン中のアカウントと一致するか。未設定の項目は比較しない */
+function matchesLogin(values, user) {
+    if (!user) { return false; }
+
+    const channel = String(values.twitchChannel || '').trim();
+    const broadcasterId = String(values.twitchBroadcasterId || '').trim();
+
+    if (channel && channel.toLowerCase() !== String(user.login).toLowerCase()) { return false; }
+    if (broadcasterId && broadcasterId !== String(user.id)) { return false; }
+
+    return true;
 }
 
 /** ログイン中の Twitch アカウントから流用できる値 */
