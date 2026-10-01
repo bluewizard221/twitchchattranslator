@@ -11,6 +11,10 @@
  * - 状態を返す口（既定 0.0.0.0:3100、外には公開しない）: GET /healthz → 正常 200 / 異常 503（Docker の HEALTHCHECK 用）
  * - エモート一覧の定期更新（既定 6 時間おき、D17）。ホストの cron は使わない
  * - 古いログの削除（既定 30 日、D19）
+ * - EventSub（Webhook）の受信口（既定 0.0.0.0:3200。nginx から /eventsub/ だけを回す）。署名を検証し、
+ *   配信者の ID からチャンネルを特定して、その bot に IPC で渡す（仕様書 7.2 節）
+ * - EventSub の購読の突き合わせ（起動時・チャンネルの変更時・1 時間ごと・購読の取り消し後）
+ * - App Access Token の管理と bot への配布
  * - SIGTERM / SIGINT: bot をすべて止めてから管理画面を止め、終了する
  * - SIGHUP: チャンネルの一覧を読み直す
  */
@@ -26,6 +30,10 @@ const logRetention = require('./lib/logRetention');
 const { Supervisor } = require('./lib/supervisor');
 const { createServer: createIpcServer } = require('./lib/ipc');
 const { readJson } = require('./lib/fileStore');
+const sharedConfig = require('./lib/sharedConfig');
+const eventsub = require('./lib/eventsub');
+const subscriptions = require('./lib/subscriptions');
+const { createTwitchApi } = require('./lib/twitchApi');
 
 const BOT_PREFIX = 'bot:';
 const WEB = 'web';
@@ -82,6 +90,13 @@ function channelSettings(login) {
     };
 }
 
+/** bot アカウントのユーザー ID（secrets/bot-tokens.json） */
+function botUserId(login) {
+    const result = readJson(paths.channel(login).botTokens);
+
+    return result.data && result.data.userId ? String(result.data.userId) : '';
+}
+
 /**
  * @param {object} options
  * @param {object} [options.logger]           log4js 互換
@@ -101,7 +116,10 @@ function createManager(options) {
         emoteIntervalMs: 6 * 60 * 60 * 1000,
         emoteFirstDelayMs: 60 * 1000,
         logRetentionDays: 30,
-        logPruneIntervalMs: 24 * 60 * 60 * 1000
+        logPruneIntervalMs: 24 * 60 * 60 * 1000,
+        eventsubPort: 3200,
+        eventsubHost: '0.0.0.0',
+        subscriptionIntervalMs: 60 * 60 * 1000
     }, options || {});
 
     const logger = opts.logger || console;
@@ -110,9 +128,31 @@ function createManager(options) {
     const startedAt = Date.now();
     const timers = [];
     let healthServer = null;
+    let eventsubServer = null;
     let stopping = false;
 
-    supervisor.on('start', (name, pid) => logger.info('起動しました: ' + name + ' (pid ' + pid + ')'));
+    // 運営者の Twitch アプリと EventSub の設定（テストでは options で上書きする）
+    const shared = Object.assign(sharedConfig.load(), opts.shared || {});
+    const api = opts.twitchApi || (shared.twitchClientId && shared.twitchClientSecret
+        ? createTwitchApi({ clientId: shared.twitchClientId, clientSecret: shared.twitchClientSecret })
+        : null);
+    const eventsubReady = !!(api && shared.eventsubCallbackUrl && shared.eventsubSecret);
+    const eventsubState = { lastSync: null, revocations: [], dropped: 0 };
+    const routes = new Map();    // 配信者の ID → チャンネル
+    let syncTimer = null;
+
+    supervisor.on('start', (name, pid) => {
+        logger.info('起動しました: ' + name + ' (pid ' + pid + ')');
+
+        // 起動した bot に App Access Token を配る
+        if (api && name.startsWith(BOT_PREFIX)) {
+            api.getAppToken().then(() => {
+                const info = api.appTokenInfo();
+
+                if (info) { supervisor.send(name, { type: 'app-token', token: info.token, expiresAt: info.expiresAt }); }
+            }).catch((err) => logger.warn('App Access Token を取得できません: ' + err.message));
+        }
+    });
     supervisor.on('exit', (name, code, signal) => {
         const message = '終了しました: ' + name + ' (code ' + code + ', signal ' + signal + ')';
 
@@ -132,12 +172,15 @@ function createManager(options) {
 
         const wanted = new Set();
 
+        routes.clear();
+
         for (const channel of channels.list()) {
             const login = channel.login;
             const ready = readiness.checkChannel(login);
 
             if (channels.isEnabled(login) && ready.ready) {
                 wanted.add(botName(login));
+                routes.set(channelSettings(login).twitchBroadcasterId, login);
                 supervisor.start(botName(login), botSpec(login, opts));
             }
         }
@@ -172,6 +215,13 @@ function createManager(options) {
         }
 
         const web = opts.startWeb ? supervisor.status(WEB) : null;
+        const eventsubStatus = {
+            configured: eventsubReady,
+            callbackUrl: shared.eventsubCallbackUrl || null,
+            lastSync: eventsubState.lastSync,
+            revocations: eventsubState.revocations.slice(-10),
+            dropped: eventsubState.dropped
+        };
 
         if (opts.startWeb && (!web || web.state !== 'running')) {
             healthy = false;
@@ -181,7 +231,8 @@ function createManager(options) {
             status: healthy ? 'ok' : 'error',
             uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000),
             web,
-            bots
+            bots,
+            eventsub: eventsubStatus
         };
     }
 
@@ -233,6 +284,58 @@ function createManager(options) {
         }
     }
 
+    /** EventSub の購読を、動かすべきチャンネルに合わせる */
+    async function syncSubscriptions() {
+        if (!eventsubReady || stopping) { return null; }
+
+        const desired = [];
+
+        for (const [broadcasterId, login] of routes) {
+            const bot = botUserId(login);
+
+            if (broadcasterId && bot) {
+                desired.push(...subscriptions.desiredFor({ broadcasterId, botUserId: bot }));
+            }
+        }
+
+        try {
+            const result = await subscriptions.reconcile(api, desired, {
+                callback: shared.eventsubCallbackUrl,
+                secret: shared.eventsubSecret,
+                logger
+            });
+
+            eventsubState.lastSync = Object.assign({ at: new Date().toISOString() }, result);
+            return result;
+        } catch (err) {
+            logger.error('EventSub の購読を突き合わせられません: ' + err.message);
+            eventsubState.lastSync = { at: new Date().toISOString(), error: err.message };
+            return null;
+        }
+    }
+
+    /** 立て続けの変更をまとめてから突き合わせる */
+    function scheduleSync(delayMs) {
+        if (!eventsubReady || stopping) { return; }
+        if (syncTimer) { clearTimeout(syncTimer); }
+
+        syncTimer = setTimeout(() => {
+            syncTimer = null;
+            syncSubscriptions();
+        }, delayMs === undefined ? 2000 : delayMs);
+        syncTimer.unref();
+    }
+
+    /** 受け取ったイベントを、配信者の ID からチャンネルを特定して bot に渡す */
+    function routeEvent(type, event) {
+        const login = routes.get(String(event.broadcaster_user_id));
+
+        if (!login || !supervisor.send(botName(login), { type: 'eventsub', subscriptionType: type, event })) {
+            eventsubState.dropped++;
+            logger.warn('EventSub: 渡し先の bot が動いていないため破棄しました ' + type + ' broadcaster=' + event.broadcaster_user_id);
+        }
+    }
+
     function requireChannel(payload) {
         const login = channels.normalize(payload && payload.login);
 
@@ -246,12 +349,14 @@ function createManager(options) {
     // 管理画面（子プロセス）からの要求。権限の確認は管理画面側で済ませてから送ってくる
     const handlers = {
         'status': async () => status(),
-        'channels.changed': async () => { await reconcile(); return status(); },
+        'channels.changed': async () => { await reconcile(); scheduleSync(0); return status(); },
+        'eventsub.sync': async () => { await reconcile(); return syncSubscriptions(); },
         'channel.start': async (payload) => {
             const login = requireChannel(payload);
 
             channels.setEnabled(login, true);
             await reconcile();
+            scheduleSync(0);
             return status().bots[login];
         },
         'channel.stop': async (payload) => {
@@ -259,6 +364,7 @@ function createManager(options) {
 
             channels.setEnabled(login, false);
             await reconcile();
+            scheduleSync(0);
             return status().bots[login];
         },
         'channel.restart': async (payload) => {
@@ -279,10 +385,48 @@ function createManager(options) {
 
     const onIpc = createIpcServer(handlers, (name, msg) => supervisor.send(name, msg));
 
+    // bot から受け付ける要求は App Access Token の受け取りだけ
+    const onBotIpc = createIpcServer({
+        'app-token': async () => {
+            if (!api) { throw new Error('Twitch アプリが設定されていません'); }
+            await api.getAppToken();
+            const info = api.appTokenInfo();
+
+            return { token: info.token, expiresAt: info.expiresAt };
+        }
+    }, (name, msg) => supervisor.send(name, msg));
+
     supervisor.on('message', (name, msg) => {
-        // 要求を受け付けるのは管理画面だけ
-        if (name === WEB) { onIpc(name, msg); }
+        if (name === WEB) {
+            onIpc(name, msg);
+        } else if (name.startsWith(BOT_PREFIX)) {
+            onBotIpc(name, msg);
+        }
     });
+
+    function startEventsubServer() {
+        if (!eventsubReady || !opts.eventsubPort) {
+            if (!eventsubReady) {
+                logger.warn('EventSub は無効です（Twitch アプリ、受信口の URL、署名用シークレットのいずれかが未設定）。チャットのイベントは届きません。');
+            }
+            return Promise.resolve(null);
+        }
+
+        const handler = eventsub.createHandler({
+            secret: shared.eventsubSecret,
+            logger,
+            onNotification: routeEvent,
+            onRevocation: (subscription) => {
+                eventsubState.revocations.push({ at: new Date().toISOString(), type: subscription.type, status: subscription.status, condition: subscription.condition });
+                eventsubState.revocations = eventsubState.revocations.slice(-50);
+                scheduleSync(30 * 1000);
+            }
+        });
+
+        eventsubServer = http.createServer(handler);
+
+        return new Promise((resolve) => eventsubServer.listen(opts.eventsubPort, opts.eventsubHost, () => resolve(eventsubServer)));
+    }
 
     function startHealthServer() {
         if (!opts.healthPort) { return Promise.resolve(null); }
@@ -306,12 +450,24 @@ function createManager(options) {
 
     async function start() {
         await startHealthServer();
+        await startEventsubServer();
 
         if (opts.startWeb) {
             supervisor.start(WEB, webSpec(opts));
         }
 
         await reconcile();
+
+        if (eventsubReady) {
+            syncSubscriptions();
+
+            if (opts.subscriptionIntervalMs) {
+                const every = setInterval(syncSubscriptions, opts.subscriptionIntervalMs);
+
+                every.unref();
+                timers.push(every);
+            }
+        }
 
         if (opts.emoteIntervalMs) {
             const first = setTimeout(() => {
@@ -344,18 +500,22 @@ function createManager(options) {
         stopping = true;
 
         for (const timer of timers) { clearTimeout(timer); clearInterval(timer); }
+        if (syncTimer) { clearTimeout(syncTimer); }
 
         await supervisor.stopMatching((name) => name.startsWith(BOT_PREFIX));
         await supervisor.stopMatching((name) => name === WEB);
 
-        if (healthServer) {
-            await new Promise((resolve) => healthServer.close(() => resolve()));
+        for (const server of [healthServer, eventsubServer]) {
+            if (server) { await new Promise((resolve) => server.close(() => resolve())); }
         }
 
         logger.info('管理プロセスを終了します');
     }
 
-    return { start, stop, reconcile, status, refreshEmotes, pruneLogs, handlers, supervisor, botSpec: (login) => botSpec(login, opts) };
+    return {
+        start, stop, reconcile, status, refreshEmotes, pruneLogs, handlers, supervisor,
+        syncSubscriptions, routeEvent, botSpec: (login) => botSpec(login, opts)
+    };
 }
 
 module.exports = { createManager, botName, BOT_PREFIX, WEB };
@@ -375,7 +535,9 @@ if (require.main === module) {
     const manager = createManager({
         logger,
         healthPort: Number(process.env.MANAGER_HEALTH_PORT || 3100),
-        healthHost: process.env.MANAGER_HEALTH_HOST || '0.0.0.0'
+        healthHost: process.env.MANAGER_HEALTH_HOST || '0.0.0.0',
+        eventsubPort: Number(process.env.EVENTSUB_PORT || 3200),
+        eventsubHost: process.env.EVENTSUB_HOST || '0.0.0.0'
     });
 
     let exiting = false;

@@ -12,8 +12,7 @@
     "express": "^5.2.1",
     "express-session": "^1.19.0",
     "fs": "0.0.1-security",
-    "log4js": "^6.9.1",
-    "tmi.js": "^1.8.5"
+    "log4js": "^6.9.1"
   },
   "scripts": {
     "start": "node twitchchattranslator.js",

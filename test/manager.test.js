@@ -33,6 +33,7 @@ function makeReady(login) {
     channels.create(login);
     const p = paths.channel(login);
 
+    writeJson(p.localConfig, { config: { twitchChannel: login, twitchBroadcasterId: '9' + login.length } });
     fs.writeFileSync(p.botTokens, '{}', { mode: 0o600 });
     fs.writeFileSync(p.googleKey, '{}', { mode: 0o600 });
 }
@@ -85,7 +86,7 @@ test('起動するのは「有効」かつ「準備がそろった」チャン�
 
         const st = manager.status();
 
-        assert.deepStrictEqual(st.bots.not_ready.missing, ['bot アカウントの接続', 'Google Cloud のキー']);
+        assert.deepStrictEqual(st.bots.not_ready.missing, ['bot アカウントの接続', 'Google Cloud のキー', '配信者の ID']);
         assert.strictEqual(st.bots.disabled_one.enabled, false);
     } finally {
         await manager.stop();

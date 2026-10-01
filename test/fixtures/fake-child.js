@@ -27,6 +27,10 @@ process.on('message', (msg) => {
     if (msg && msg.type === 'ping' && process.send) {
         process.send({ type: 'pong', cwd: process.cwd(), channel: process.env.TCT_CHANNEL || null });
     }
+    // 管理プロセスから届いたイベントとトークンをそのまま報告し返す
+    if (msg && (msg.type === 'eventsub' || msg.type === 'app-token') && process.send) {
+        process.send({ type: 'got', what: msg.type, channel: process.env.TCT_CHANNEL || null, payload: msg });
+    }
 });
 
 if (mode === 'config' && process.send) {
