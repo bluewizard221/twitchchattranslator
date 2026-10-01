@@ -15,6 +15,7 @@ const log4js = require('log4js');
 const paths = require('../lib/paths');
 const webConfig = require('./lib/webConfig');
 const { createApp } = require('./app');
+const { loadOperators } = require('./lib/operators');
 
 log4js.configure({
     appenders: {
@@ -37,7 +38,7 @@ const server = app.listen(config.port, config.host, () => {
         logger.info('Twitch アプリの認証情報は bot 設定（config/default.json など）から流用しています。');
     }
 
-    logger.info('ログインを許可しているユーザー: ' + (config.allowedUsers.join(', ') || 'なし'));
+    logger.info('運営者: ' + (loadOperators(config.allowedUsers).join(', ') || 'なし') + '（配信者は登録済みのチャンネルのログイン名）');
 
     for (const warning of config.warnings) {
         logger.warn(warning);

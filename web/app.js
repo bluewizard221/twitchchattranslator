@@ -7,7 +7,9 @@ const session = require('express-session');
 const { createAuthRouter } = require('./routes/auth');
 const { createApiRouter } = require('./routes/api');
 const { requireAuth, ensureCsrfToken } = require('./middleware/auth');
-const webConfig = require('./lib/webConfig');
+const { rateLimit } = require('./middleware/rateLimit');
+const { createRoles } = require('./lib/roles');
+const { BoundedMemoryStore } = require('./lib/sessionStore');
 
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
@@ -18,6 +20,15 @@ const PUBLIC_DIR = path.join(__dirname, 'public');
  */
 function createApp(config, logger) {
     const app = express();
+    const roles = createRoles(config);
+    const sessionStore = new BoundedMemoryStore({
+        maxSessions: config.maxSessions,
+        defaultTtlMs: config.sessionMaxAgeMs
+    });
+
+    // チャンネルの削除時にセッションを無効にするなど、ほかの処理から使えるようにしておく
+    app.locals.roles = roles;
+    app.locals.sessionStore = sessionStore;
 
     app.disable('x-powered-by');
 
@@ -45,6 +56,7 @@ function createApp(config, logger) {
 
     app.use(session({
         name: 'tct.sid',
+        store: sessionStore,
         secret: config.sessionSecret,
         resave: false,
         saveUninitialized: false,
@@ -64,17 +76,17 @@ function createApp(config, logger) {
         next();
     });
 
-    // ログイン処理（認証不要）
-    app.use('/auth', createAuthRouter(config, logger));
+    // ログイン処理（認証不要。公開すると誰でも呼べるので回数制限をかける）
+    app.use('/auth', rateLimit({ max: config.rateLimitAuthPerMinute }), createAuthRouter(config, logger, roles));
 
     // 画面
-    app.get('/', requireAuth(config), (req, res) => {
+    app.get('/', requireAuth(roles), (req, res) => {
         res.set('Cache-Control', 'no-store');
         res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
     });
 
     app.get('/login', (req, res) => {
-        if (req.session && req.session.user && webConfig.isAllowed(config, req.session.user.login)) {
+        if (req.session && req.session.user && roles.isAllowed(req.session.user)) {
             return res.redirect('/');
         }
 
@@ -83,7 +95,7 @@ function createApp(config, logger) {
     });
 
     // API（すべてログイン必須）
-    app.use('/api', requireAuth(config), createApiRouter(config, logger));
+    app.use('/api', rateLimit({ max: config.rateLimitApiPerMinute }), requireAuth(roles), createApiRouter(config, logger));
 
     // CSS / JS などの静的ファイル
     app.use(express.static(PUBLIC_DIR, { index: false, dotfiles: 'ignore', maxAge: '5m' }));

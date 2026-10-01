@@ -1,7 +1,6 @@
 'use strict';
 
 const crypto = require('crypto');
-const webConfig = require('../lib/webConfig');
 
 /** セッションごとの CSRF トークンを用意する */
 function ensureCsrfToken(req) {
@@ -25,13 +24,15 @@ function timingSafeEqual(a, b) {
 
 /**
  * ログイン必須。API へは 401 JSON、画面へはログインページへのリダイレクトを返す。
- * 許可ユーザー一覧はリクエストごとに再確認するため、設定から外したユーザーは次のアクセスで弾かれる。
+ * 権限（運営者・登録済みの配信者）はリクエストごとに再確認するため、
+ * 運営者の一覧から外したり、チャンネルを削除したりしたユーザーは次のアクセスで弾かれる。
+ * @param {object} roles web/lib/roles.js の createRoles() の戻り値
  */
-function requireAuth(config) {
+function requireAuth(roles) {
     return function (req, res, next) {
         const user = req.session && req.session.user;
 
-        if (!user || !webConfig.isAllowed(config, user.login)) {
+        if (!user || !roles.isAllowed(user)) {
             if (user) {
                 req.session.user = null;
             }

@@ -20,6 +20,9 @@ process.env.WEBUI_TWITCH_CLIENT_SECRET = 'test-client-secret';
 process.env.WEBUI_ALLOWED_USERS = 'streamer_one';
 process.env.WEBUI_SESSION_SECRET = 'test-session-secret';
 process.env.WEBUI_REDIRECT_URI = 'http://localhost:3000/auth/twitch/callback';
+// テストでは何十回もログインするので回数制限を緩める（回数制限そのものは rateLimit.test.js と下のテストで確認する）
+process.env.WEBUI_RATE_LIMIT_AUTH = '10000';
+process.env.WEBUI_RATE_LIMIT_API = '10000';
 
 const webConfig = require('../web/lib/webConfig');
 const { createApp } = require('../web/app');
@@ -601,4 +604,34 @@ test('概要 API は配信状態の確認間隔を返す（未設定なら bot �
     });
 
     assert.strictEqual((await request(jar, 'GET', '/api/overview')).body.streamStatusPollSeconds, 60);
+});
+
+test('/auth への回数制限が効く', async () => {
+    const limited = createApp(Object.assign({}, config, { rateLimitAuthPerMinute: 3 }), logger);
+    const srv = await new Promise((resolve) => { const s2 = limited.listen(0, '127.0.0.1', () => resolve(s2)); });
+
+    try {
+        const url = 'http://127.0.0.1:' + srv.address().port + '/auth/status';
+        const statuses = [];
+
+        for (let i = 0; i < 5; i++) {
+            statuses.push((await realFetch(url)).status);
+        }
+
+        assert.deepStrictEqual(statuses, [200, 200, 200, 429, 429]);
+    } finally {
+        srv.close();
+    }
+});
+
+test('未ログインで OAuth を始めただけのセッションは、上限付きの保存先に入る', async () => {
+    const store = app.locals.sessionStore;
+    const before = await new Promise((resolve) => store.length((err, n) => resolve(n)));
+
+    await request(newJar(), 'GET', '/auth/twitch');
+
+    const after = await new Promise((resolve) => store.length((err, n) => resolve(n)));
+
+    assert.strictEqual(after, before + 1);
+    assert.strictEqual(store.maxSessions, 1000);
 });

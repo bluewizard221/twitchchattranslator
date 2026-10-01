@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const paths = require('../../lib/paths');
 const { readJson } = require('../../lib/fileStore');
 const configStore = require('./configStore');
+const { loadOperators } = require('./operators');
 
 /**
  * 管理画面自身の設定を読み込む。
@@ -46,9 +47,9 @@ function load() {
         errors.push('Twitch アプリの Client ID / Client Secret が設定されていません。' +
             'config/webui.json または環境変数 WEBUI_TWITCH_CLIENT_ID / WEBUI_TWITCH_CLIENT_SECRET を設定してください。');
     }
-    if (allowedUsers.length === 0) {
-        errors.push('ログインを許可するユーザーが 1 人も設定されていません。' +
-            'config/webui.json の allowedUsers、または環境変数 WEBUI_ALLOWED_USERS にチャンネル名を設定してください。');
+    if (loadOperators(allowedUsers).length === 0) {
+        errors.push('運営者が 1 人も設定されていません。' +
+            'config/operators.json の operators、環境変数 WEBUI_OPERATORS、または config/webui.json の allowedUsers（旧形式）に Twitch のログイン名を設定してください。');
     }
     if (!sessionSecretRaw) {
         warnings.push('WEBUI_SESSION_SECRET が未設定のため、起動ごとにランダムな値を生成しました。' +
@@ -66,17 +67,14 @@ function load() {
         trustProxy,
         secureCookie,
         sessionMaxAgeMs: toInt(pick(process.env.WEBUI_SESSION_HOURS, file.sessionHours), 12) * 60 * 60 * 1000,
+        maxSessions: toInt(pick(process.env.WEBUI_MAX_SESSIONS, file.maxSessions), 1000),
+        rateLimitAuthPerMinute: toInt(pick(process.env.WEBUI_RATE_LIMIT_AUTH, file.rateLimitAuthPerMinute), 30),
+        rateLimitApiPerMinute: toInt(pick(process.env.WEBUI_RATE_LIMIT_API, file.rateLimitApiPerMinute), 600),
         warnings,
         errors,
         // Client ID / Secret を bot 設定から流用したかどうか（画面に表示する）
         usingBotCredentials: !process.env.WEBUI_TWITCH_CLIENT_ID && !file.twitchClientId && !!botConfig.twitchClientId
     };
-}
-
-function isAllowed(config, login) {
-    if (!login) { return false; }
-
-    return config.allowedUsers.indexOf(String(login).toLowerCase()) !== -1;
 }
 
 function safeBotConfig() {
@@ -129,4 +127,4 @@ function toPort(value, fallback) {
     return Number.isInteger(num) && num > 0 && num < 65536 ? num : fallback;
 }
 
-module.exports = { load, isAllowed };
+module.exports = { load };

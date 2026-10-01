@@ -3,10 +3,9 @@
 const crypto = require('crypto');
 const express = require('express');
 const twitch = require('../lib/twitch');
-const webConfig = require('../lib/webConfig');
 const { ensureCsrfToken, timingSafeEqual } = require('../middleware/auth');
 
-function createAuthRouter(config, logger) {
+function createAuthRouter(config, logger, roles) {
     const router = express.Router();
 
     // ログインページや管理画面から参照する公開ステータス
@@ -14,7 +13,7 @@ function createAuthRouter(config, logger) {
         const user = req.session && req.session.user;
 
         res.json({
-            loggedIn: !!(user && webConfig.isAllowed(config, user.login)),
+            loggedIn: !!(user && roles.isAllowed(user)),
             login: user ? user.login : null,
             ready: config.errors.length === 0,
             errors: config.errors
@@ -93,7 +92,7 @@ function createAuthRouter(config, logger) {
             return res.redirect('/login?error=oauth');
         }
 
-        if (!webConfig.isAllowed(config, user.login)) {
+        if (!roles.isAllowed({ login: user.login })) {
             logger.warn('許可されていないユーザーのログイン試行: ' + user.login);
 
             if (token && token.access_token) {
