@@ -148,6 +148,11 @@ async function helixSendMessage(message) {
 		appAccessToken = null;
 		tokenExpiresAt = 0;
 	    }
+
+	    if (res.status === 403) {
+		logger.error('Helix refused to post: the broadcaster has not authorized this bot (channel:bot scope) ' +
+		    'and the bot is not a moderator of the channel, or the bot lacks user:bot / user:write:chat');
+	    }
 	    return { sent: false, messageId: null };
 	}
 
@@ -166,7 +171,8 @@ async function helixSendMessage(message) {
 }
 
 // Wrapper: send chat message via Helix API (for bot badge)
-// Falls back to tmi.js IRC if Helix fails
+// No IRC fallback: Helix enforces the broadcaster's consent (channel:bot scope or moderator status),
+// while IRC would let the bot post into any channel. A failed send is only logged.
 // Tracks message pair for auto-deletion
 async function sendChatMessage(target, message, originalMsgId, originalUsername) {
     const result = await helixSendMessage(message);
@@ -180,8 +186,7 @@ async function sendChatMessage(target, message, originalMsgId, originalUsername)
 	    logger.debug('Message mapping stored: ' + originalMsgId + ' -> ' + result.messageId);
 	}
     } else {
-	logger.warn('Helix API failed, falling back to IRC');
-	client.say(target, message);
+	logger.error('Translation was not posted (no IRC fallback). original message id: ' + (originalMsgId || 'n/a'));
     }
 }
 
