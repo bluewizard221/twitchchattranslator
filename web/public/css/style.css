@@ -490,6 +490,8 @@ table.simple th {
 }
 
 .toast-area {
+    /* 通知は操作しないので、下にあるボタンのクリックを妨げない */
+    pointer-events: none;
     position: fixed;
     right: 16px;
     bottom: 16px;
@@ -645,3 +647,100 @@ input.locked-input {
 
 .rule-list li + li { margin-top: 6px; }
 .rule-list strong { color: var(--text); }
+
+/* ---------------- 利用開始までの手順 ---------------- */
+
+.steps {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    counter-reset: step;
+}
+
+.step {
+    position: relative;
+    padding: 12px 0 12px 36px;
+    border-bottom: 1px solid var(--border);
+    counter-increment: step;
+}
+
+.step:last-child { border-bottom: none; }
+
+.step::before {
+    content: counter(step);
+    position: absolute;
+    left: 0;
+    top: 13px;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--bg-subtle);
+    border: 1px solid var(--border-strong);
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.step-done::before { background: var(--ok-bg); color: var(--ok); border-color: currentColor; }
+
+.step-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.step-body {
+    margin: 4px 0 0;
+    font-size: 13px;
+    color: var(--text-muted);
+}
+
+.step-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+}
+
+a.btn { display: inline-block; text-decoration: none; }
+
+.stat-warn { border-color: var(--warn); background: var(--warn-bg); }
+
+/* ---------------- 一覧表 ---------------- */
+
+.table-wrap { overflow-x: auto; }
+
+table.simple.grid th { width: auto; }
+
+.cell-note {
+    font-size: 12px;
+    color: var(--text-faint);
+    margin-top: 3px;
+}
+
+.cell-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.result-list {
+    list-style: none;
+    margin: 0 0 14px;
+    padding: 0;
+    font-size: 13px;
+}
+
+.result-list li { padding: 4px 0; }
+
+textarea.short { min-height: 110px; }
+
+.spaced { margin-top: 12px; }
+
+p.mono { margin: 0; }
+
+.note { font-size: 12px; color: var(--text-faint); }

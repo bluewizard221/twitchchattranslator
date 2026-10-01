@@ -15,7 +15,7 @@
         <div class="brand">
             <span class="brand-dot" aria-hidden="true">訳</span>
             <span>Twitch チャット翻訳bot
-                <small id="brandChannel">管理画面</small>
+                <small id="brandRole">管理画面</small>
             </span>
         </div>
         <div class="user-chip">
@@ -24,44 +24,56 @@
         </div>
         <button type="button" class="btn btn-small" id="logoutButton">ログアウト</button>
     </div>
+    <!-- 役割に応じて表示するタブを切り替える（data-role: owner = 自分のチャンネルを持つ配信者、operator = 運営者） -->
     <nav class="tabs" id="tabs">
-        <button type="button" class="tab active" data-view="dashboard">ダッシュボード</button>
-        <button type="button" class="tab" data-view="config">基本設定</button>
-        <button type="button" class="tab" data-view="lists">翻訳除外リスト</button>
-        <button type="button" class="tab" data-view="emotes">エモート</button>
-        <button type="button" class="tab" data-view="google">Google Cloud キー</button>
-        <button type="button" class="tab" data-view="logs">ログ</button>
+        <button type="button" class="tab hidden" data-view="channel" data-role="owner">マイチャンネル</button>
+        <button type="button" class="tab hidden" data-view="config" data-role="owner">設定</button>
+        <button type="button" class="tab hidden" data-view="lists" data-role="owner">リスト・エモート</button>
+        <button type="button" class="tab hidden" data-view="google" data-role="owner">Google Cloud キー</button>
+        <button type="button" class="tab hidden" data-view="channels" data-role="operator">チャンネル管理</button>
+        <button type="button" class="tab hidden" data-view="shared" data-role="operator">共通の設定</button>
+        <button type="button" class="tab hidden" data-view="logs" data-role="any">ログ</button>
+        <button type="button" class="tab hidden" data-view="audit" data-role="any">操作の記録</button>
     </nav>
 </header>
 
 <main>
 
-<!-- ============================ ダッシュボード ============================ -->
-<section id="view-dashboard" class="view">
+<div id="globalNotices"></div>
+
+<!-- ============================ マイチャンネル ============================ -->
+<section id="view-channel" class="view hidden">
     <div class="panel">
         <div class="panel-head">
             <div>
-                <h2>現在の状態</h2>
-                <p>bot の稼働状況と設定の過不足を確認できます。</p>
+                <h2>利用開始までの手順</h2>
+                <p>上から順に進めてください。すべてそろうと bot が起動します。</p>
             </div>
-            <button type="button" class="btn btn-small" id="refreshOverview">再読み込み</button>
+            <button type="button" class="btn btn-small" id="refreshChannel">再読み込み</button>
         </div>
-        <div id="overviewNotices"></div>
-        <div class="stat-grid" id="overviewStats">
-            <div class="loading">読み込み中…</div>
-        </div>
+        <div id="channelNotices"></div>
+        <ol class="steps" id="channelSteps">
+            <li class="loading">読み込み中…</li>
+        </ol>
     </div>
 
     <div class="panel">
         <div class="panel-head">
             <div>
-                <h2>リストの反映</h2>
-                <p>リストファイルを編集したあと、稼働中の bot に <code>SIGHUP</code> を送って再読み込みさせます。
-                   （チャットから <code>!refreshignoreuser</code> などを実行するのと同じ効果です）</p>
+                <h2>bot の稼働状態</h2>
+                <p>設定・リスト・キーを変えると、動いている bot には自動で反映されます。</p>
             </div>
-            <button type="button" class="btn btn-primary" id="reloadBot">bot に反映する</button>
         </div>
-        <p class="panel-help" id="botStatusText">—</p>
+        <div class="stat-grid" id="channelStats">
+            <div class="loading">読み込み中…</div>
+        </div>
+        <div class="actions">
+            <button type="button" class="btn btn-primary" data-control="start">起動</button>
+            <button type="button" class="btn" data-control="restart">再起動</button>
+            <button type="button" class="btn btn-danger" data-control="stop">停止</button>
+            <span class="spacer"></span>
+            <span class="note" id="channelProcessNote"></span>
+        </div>
     </div>
 
     <div class="panel">
@@ -69,37 +81,28 @@
         <p class="panel-help">bot はチャットを次のルールで翻訳・投稿します。</p>
         <ul class="rule-list">
             <li><strong>チャンネル主の発言</strong>は、配信中かどうかに関係なく常に翻訳します。</li>
-            <li><strong>それ以外のユーザーの発言</strong>は、配信中のみ翻訳します。配信中かどうかは
-                <span id="pollIntervalText">60 秒</span>ごとに Twitch に問い合わせて判定するため、配信の開始・終了の反映は最大でこの間隔ぶん遅れます
-                （間隔は「基本設定」の「配信状態の確認間隔」で変更できます）。<code>!refreshignoreuser</code> などのコマンドは常に使えます。</li>
-            <li><strong>翻訳の投稿</strong>は、チャンネル主が bot を許可している（<code>channel:bot</code>）か、bot がそのチャンネルのモデレーターである場合にだけ行います。
-                許可がないと投稿されず、その旨が「ログ」タブに記録されます。チャンネル主の同意なしに投稿しないよう、IRC での代替投稿は行いません。</li>
-            <li><strong>対象チャンネル</strong>は、この管理画面にログインしているアカウントのチャンネルしか設定できません。</li>
+            <li><strong>それ以外のユーザーの発言</strong>は、配信中のみ翻訳します。配信の開始・終了は Twitch からの通知（EventSub）で反映します。
+                <code>!refreshignoreuser</code> などのコマンドは常に使えます。</li>
+            <li><strong>翻訳の投稿</strong>には、チャンネル主の許可（<code>channel:bot</code>。ログイン時に求めます）か、bot アカウントがモデレーターであることが必要です。
+                どちらもないと投稿されず、その旨が「ログ」タブに記録されます。</li>
+            <li><strong>元の発言が削除・タイムアウトされたとき</strong>の翻訳の自動削除には、bot アカウントがモデレーターである必要があります。</li>
+            <li><strong>1 日の翻訳文字数の上限</strong>（「設定」タブ）に達すると、その日はチャンネル主の発言も含めて翻訳しません。</li>
         </ul>
     </div>
 </section>
 
-<!-- ============================ 基本設定 ============================ -->
+<!-- ============================ 設定 ============================ -->
 <section id="view-config" class="view hidden">
-    <div class="panel">
-        <div class="panel-head">
-            <div>
-                <h2>基本設定</h2>
-                <p>保存すると <code>config/local.json</code> に書き込まれます。
-                   <code>config/default.json</code> は変更せず、同じ項目があれば <code>local.json</code> の値が優先されます。
-                   対象チャンネルと配信者 ID は、ログイン中の Twitch アカウントのものしか設定できません。</p>
-            </div>
-            <button type="button" class="btn btn-small" id="fillFromOauth">Twitch ログイン情報から入力</button>
-        </div>
-        <div id="configNotices"></div>
-    </div>
-
     <form id="configForm">
-        <div id="configGroups">
-            <div class="panel"><div class="loading">読み込み中…</div></div>
-        </div>
-
         <div class="panel">
+            <div class="panel-head">
+                <div>
+                    <h2>チャンネルの設定</h2>
+                    <p>対象チャンネルと配信者の ID は、ログインしたアカウントから自動で設定され、ここでは変更できません。</p>
+                </div>
+            </div>
+            <div id="configNotices"></div>
+            <div id="configFields"><div class="loading">読み込み中…</div></div>
             <div class="actions">
                 <button type="submit" class="btn btn-primary" id="saveConfig">設定を保存</button>
                 <button type="button" class="btn" id="reloadConfig">変更を破棄して再読み込み</button>
@@ -108,9 +111,17 @@
             </div>
         </div>
     </form>
+
+    <div class="panel">
+        <h2>翻訳 API の使用量</h2>
+        <p class="panel-help">Google に送った文字数です（言語の判定と翻訳の両方を数えます）。料金の目安にしてください。</p>
+        <div class="stat-grid" id="usageStats">
+            <div class="loading">読み込み中…</div>
+        </div>
+    </div>
 </section>
 
-<!-- ============================ 翻訳除外リスト ============================ -->
+<!-- ============================ リスト・エモート ============================ -->
 <section id="view-lists" class="view hidden">
     <div class="panel" data-list="ignoreusers">
         <div class="panel-head">
@@ -122,10 +133,7 @@
         </div>
         <div class="list-notices"></div>
         <textarea class="list-input" spellcheck="false" aria-label="翻訳しないユーザー"></textarea>
-        <div class="list-meta">
-            <span class="list-path"></span>
-            <span class="list-updated"></span>
-        </div>
+        <div class="list-meta"><span class="list-updated"></span></div>
         <div class="actions">
             <button type="button" class="btn btn-primary list-save">保存</button>
             <button type="button" class="btn list-reload">再読み込み</button>
@@ -142,67 +150,30 @@
         </div>
         <div class="list-notices"></div>
         <textarea class="list-input" spellcheck="false" aria-label="翻訳しない文字列"></textarea>
-        <div class="list-meta">
-            <span class="list-path"></span>
-            <span class="list-updated"></span>
-        </div>
+        <div class="list-meta"><span class="list-updated"></span></div>
         <div class="actions">
             <button type="button" class="btn btn-primary list-save">保存</button>
             <button type="button" class="btn list-reload">再読み込み</button>
         </div>
-    </div>
-</section>
-
-<!-- ============================ エモート ============================ -->
-<section id="view-emotes" class="view hidden">
-    <div class="panel">
-        <div class="panel-head">
-            <div>
-                <h2>エモート一覧の自動更新</h2>
-                <p>BetterTTV と FrankerFaceZ からエモート名を取得して <code>emoticons.json</code> を更新します。
-                   対象チャンネルと配信者のユーザー ID は「基本設定」の値を使用します。</p>
-            </div>
-        </div>
-
-        <div class="field">
-            <label>更新方法</label>
-            <div class="radio-row">
-                <label><input type="radio" name="emoteMode" value="merge" checked>
-                    <span><strong>追加（推奨）</strong><br>既存の一覧を残したまま、取得したエモートを追加します。手動で足したものは消えません。</span></label>
-                <label><input type="radio" name="emoteMode" value="replace">
-                    <span><strong>置き換え</strong><br>取得したエモートだけで一覧を作り直します。手動で足したものは失われます。</span></label>
-            </div>
-        </div>
-
-        <div id="emoteNotices"></div>
-
-        <div class="actions">
-            <button type="button" class="btn" id="previewEmotes">取得内容を確認（保存しない）</button>
-            <button type="button" class="btn btn-primary" id="updateEmotes">取得して保存</button>
-            <span class="spacer"></span>
-            <span class="note" id="emoteTarget"></span>
-        </div>
-
-        <ul class="source-list hidden" id="emoteSources"></ul>
     </div>
 
     <div class="panel" data-list="emoticons">
         <div class="panel-head">
             <div>
-                <h2>エモート一覧の手動編集</h2>
+                <h2>エモート一覧</h2>
                 <p class="list-help">—</p>
             </div>
             <span class="badge badge-muted list-count">—</span>
         </div>
         <div class="list-notices"></div>
+        <p class="panel-help">BetterTTV と FrankerFaceZ のエモートは 6 時間ごとに自動で取得し直します（取得したものだけで一覧を作り直します）。すぐに取得し直す場合は「今すぐ取得」を押してください。</p>
         <textarea class="list-input" spellcheck="false" aria-label="エモート一覧"></textarea>
-        <div class="list-meta">
-            <span class="list-path"></span>
-            <span class="list-updated"></span>
-        </div>
+        <div class="list-meta"><span class="list-updated"></span></div>
         <div class="actions">
             <button type="button" class="btn btn-primary list-save">保存</button>
             <button type="button" class="btn list-reload">再読み込み</button>
+            <span class="spacer"></span>
+            <button type="button" class="btn" id="refreshEmotes">今すぐ取得</button>
         </div>
     </div>
 </section>
@@ -213,8 +184,8 @@
         <div class="panel-head">
             <div>
                 <h2>サービスアカウントキーのアップロード</h2>
-                <p>Google Cloud Translation API のサービスアカウントキー（JSON）をアップロードします。
-                   保存先は <code>config/</code> 配下で、パーミッションは 0600（所有者のみ読み書き可）に設定されます。</p>
+                <p>Cloud Translation API を有効にした Google Cloud プロジェクトの、サービスアカウントキー（JSON）をアップロードします。
+                   キーはこのチャンネル専用の場所に、所有者だけが読める形（0600）で保存されます。保存したキーの中身は、この画面にも表示しません。</p>
             </div>
             <button type="button" class="btn btn-small" id="refreshGoogle">再読み込み</button>
         </div>
@@ -227,23 +198,98 @@
         </div>
         <input type="file" id="keyFile" accept="application/json,.json" class="hidden">
 
-        <div class="field" id="keyPreview">
+        <div class="field">
             <p class="help" id="keyPreviewText"></p>
         </div>
 
         <div class="actions">
-            <button type="button" class="btn btn-primary" id="uploadKey" disabled>アップロードして設定に反映</button>
-            <span class="spacer"></span>
-            <span class="note">アップロードすると <code>googleKeyFile</code> と <code>googleProjectId</code> が自動的に更新されます。</span>
+            <button type="button" class="btn btn-primary" id="uploadKey" disabled>アップロード</button>
         </div>
     </div>
 
     <div class="panel">
         <h2>現在のキー</h2>
-        <p class="panel-help">bot が読み込む設定に書かれているキーファイルの状態です。</p>
         <table class="simple" id="googleStatus">
             <tbody><tr><td class="loading">読み込み中…</td></tr></tbody>
         </table>
+        <div class="actions">
+            <button type="button" class="btn btn-danger" id="deleteKey">キーを削除</button>
+            <span class="spacer"></span>
+            <span class="note">削除しても Google Cloud 側ではキーは有効なままです。不要になったキーは Google Cloud のコンソールでも削除してください。</span>
+        </div>
+    </div>
+</section>
+
+<!-- ============================ チャンネル管理（運営者） ============================ -->
+<section id="view-channels" class="view hidden">
+    <div class="panel">
+        <div class="panel-head">
+            <div>
+                <h2>登録済みのチャンネル</h2>
+                <p>bot の状態の確認と、起動・停止・再起動ができます。配信者の設定・リスト・キー・bot アカウントは、配信者本人だけが操作できます。</p>
+            </div>
+            <button type="button" class="btn btn-small" id="refreshChannels">再読み込み</button>
+        </div>
+        <div id="channelsNotices"></div>
+        <div class="table-wrap">
+            <table class="simple grid" id="channelsTable">
+                <thead>
+                    <tr><th>チャンネル</th><th>準備</th><th>bot</th><th>登録</th><th>操作</th></tr>
+                </thead>
+                <tbody><tr><td colspan="5" class="loading">読み込み中…</td></tr></tbody>
+            </table>
+        </div>
+        <p class="note" id="eventsubNote"></p>
+    </div>
+
+    <div class="panel">
+        <h2>チャンネルの登録</h2>
+        <p class="panel-help">配信者の Twitch のログイン名を入力します。登録後、配信者本人がこの管理画面にログインして準備を進めます。</p>
+        <form id="registerForm" class="input-row">
+            <input type="text" id="registerLogin" placeholder="twitch_login_name" autocomplete="off" spellcheck="false" aria-label="登録するログイン名">
+            <button type="submit" class="btn btn-primary" id="registerButton">登録</button>
+        </form>
+        <div id="registerNotices" class="spaced"></div>
+    </div>
+
+    <div class="panel hidden" id="deleteResultPanel">
+        <h2>削除の結果</h2>
+        <div id="deleteResult"></div>
+    </div>
+</section>
+
+<!-- ============================ 共通の設定（運営者） ============================ -->
+<section id="view-shared" class="view hidden">
+    <form id="sharedForm">
+        <div class="panel">
+            <div class="panel-head">
+                <div>
+                    <h2>Twitch アプリと EventSub</h2>
+                    <p>すべてのチャンネルで共通に使う設定です。保存先は <code>config/local.json</code> です（<code>config/default.json</code> は変更しません）。
+                       秘密の値は表示しません。変更する場合だけ入力してください。</p>
+                </div>
+            </div>
+            <div id="sharedNotices"></div>
+            <div id="sharedFields"><div class="loading">読み込み中…</div></div>
+            <div class="actions">
+                <button type="submit" class="btn btn-primary" id="saveShared">保存</button>
+                <span class="spacer"></span>
+                <span class="note" id="sharedMeta"></span>
+            </div>
+        </div>
+    </form>
+
+    <div class="panel">
+        <h2>運営者</h2>
+        <p class="panel-help">運営者の Twitch のログイン名（1 行に 1 人）。運営者はチャンネルの登録・削除と共通の設定を扱えます。自分自身は外せません。</p>
+        <div id="operatorsNotices"></div>
+        <textarea id="operatorsInput" class="short" spellcheck="false" aria-label="運営者の一覧"></textarea>
+        <p class="note" id="operatorsFixed"></p>
+        <div class="actions">
+            <button type="button" class="btn btn-primary" id="saveOperators">保存</button>
+            <span class="spacer"></span>
+            <span class="note" id="operatorsPath"></span>
+        </div>
     </div>
 </section>
 
@@ -253,8 +299,7 @@
         <div class="panel-head">
             <div>
                 <h2>ログ</h2>
-                <p>bot・管理画面・エモート自動更新のログ（当日分）の末尾を表示します。
-                   翻訳を投稿できなかった場合（チャンネル主が bot を許可していないなど）も、ここに記録されます。</p>
+                <p>ログ（当日分）の末尾を表示します。翻訳を投稿できなかった場合なども、ここに記録されます。ログは 30 日で削除されます。</p>
             </div>
             <button type="button" class="btn btn-small" id="refreshLogs">再読み込み</button>
         </div>
@@ -273,6 +318,29 @@
         <div id="logNotices"></div>
         <pre class="log-output" id="logOutput" tabindex="0" aria-label="ログの内容"></pre>
         <div class="list-meta"><span class="note" id="logMeta"></span></div>
+    </div>
+</section>
+
+<!-- ============================ 操作の記録 ============================ -->
+<section id="view-audit" class="view hidden">
+    <div class="panel">
+        <div class="panel-head">
+            <div>
+                <h2>操作の記録</h2>
+                <p>誰が、いつ、どのチャンネルの、何を変えたかの記録です（新しい順）。秘密の値は記録しません。記録は 1 年で削除されます。</p>
+            </div>
+            <div class="log-controls">
+                <select id="auditScope" aria-label="表示する範囲"></select>
+                <button type="button" class="btn btn-small" id="refreshAudit">再読み込み</button>
+            </div>
+        </div>
+        <div id="auditNotices"></div>
+        <div class="table-wrap">
+            <table class="simple grid" id="auditTable">
+                <thead><tr><th>日時</th><th>操作した人</th><th>チャンネル</th><th>操作</th><th>内容</th></tr></thead>
+                <tbody></tbody>
+            </table>
+        </div>
     </div>
 </section>
 

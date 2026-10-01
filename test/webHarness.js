@@ -274,5 +274,5 @@ const VALID_KEY = {
 
 module.exports = {
     ROOT, paths, channels, app, config, logger, logLines, manager, twitch, USERS, BOT_SCOPES, VALID_KEY,
-    start, stop, newJar, request, oauth, loginAs, connectBot, registerChannel, snapshotDir, createApp, realFetch
+    start, stop, baseUrl: () => baseUrl, newJar, request, oauth, loginAs, connectBot, registerChannel, snapshotDir, createApp, realFetch
 };

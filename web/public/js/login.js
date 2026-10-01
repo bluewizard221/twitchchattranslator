@@ -4,7 +4,7 @@
     var MESSAGES = {
         denied: {
             type: 'error',
-            text: 'このアカウントには管理画面へのアクセスが許可されていません。config/webui.json の allowedUsers に追加してください。'
+            text: 'このアカウントには管理画面へのアクセスが許可されていません。配信者の方は、運営者にチャンネルの登録を依頼してください。'
         },
         state: {
             type: 'error',
@@ -12,7 +12,7 @@
         },
         oauth: {
             type: 'error',
-            text: 'Twitch との認証に失敗しました。Client ID / Client Secret とリダイレクト URI の設定を確認してください。'
+            text: 'Twitch との認証に失敗しました。時間をおいてもう一度お試しください。続く場合は運営者に連絡してください。'
         },
         cancelled: {
             type: 'warn',
@@ -60,7 +60,7 @@
         var login = params.get('login');
 
         render(message.type, errorKey === 'denied' && login
-            ? 'ログインしたアカウント「' + login + '」には管理画面へのアクセスが許可されていません。config/webui.json の allowedUsers に追加してください。'
+            ? 'ログインしたアカウント「' + login + '」には管理画面へのアクセスが許可されていません。配信者の方は、運営者にチャンネルの登録を依頼してください。'
             : message.text);
     }
 

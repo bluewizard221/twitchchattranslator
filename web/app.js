@@ -15,6 +15,10 @@ const twitch = require('./lib/twitch');
 
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
+// 画面の HTML は固定のパスなので、置き場所の途中にドットで始まるディレクトリ（~/.local など）があっても送る
+// （sendFile の既定ではそうしたパスは 404 になる）
+const SEND_PAGE = { dotfiles: 'allow' };
+
 /**
  * 管理画面の Express アプリケーションを組み立てる。
  * @param {object} config web/lib/webConfig.load() の戻り値
@@ -91,7 +95,7 @@ function createApp(config, logger, options) {
     // 画面
     app.get('/', requireAuth(roles), (req, res) => {
         res.set('Cache-Control', 'no-store');
-        res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
+        res.sendFile(path.join(PUBLIC_DIR, 'index.html'), SEND_PAGE);
     });
 
     app.get('/login', (req, res) => {
@@ -100,7 +104,7 @@ function createApp(config, logger, options) {
         }
 
         res.set('Cache-Control', 'no-store');
-        res.sendFile(path.join(PUBLIC_DIR, 'login.html'));
+        res.sendFile(path.join(PUBLIC_DIR, 'login.html'), SEND_PAGE);
     });
 
     // API（すべてログイン必須）

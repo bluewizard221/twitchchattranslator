@@ -5,7 +5,7 @@
     var state = {
         csrfToken: null,
         user: null,
-        config: null,
+        role: null,          // { login, isOperator, channel }
         loaded: {},
         pendingKey: null
     };
@@ -56,6 +56,11 @@
         });
     }
 
+    /** 自分のチャンネルの API の URL */
+    function own(path) {
+        return '/api/channels/' + encodeURIComponent(state.role.channel) + (path || '');
+    }
+
     function el(tag, className, text) {
         var node = document.createElement(tag);
 
@@ -69,8 +74,12 @@
         while (node.firstChild) { node.removeChild(node.firstChild); }
     }
 
+    function $(id) {
+        return document.getElementById(id);
+    }
+
     function toast(type, text) {
-        var area = document.getElementById('toasts');
+        var area = $('toasts');
         var node = el('div', 'toast toast-' + type, text);
 
         area.appendChild(node);
@@ -118,6 +127,10 @@
             ' ' + pad(date.getHours()) + ':' + pad(date.getMinutes());
     }
 
+    function formatNumber(num) {
+        return Number(num || 0).toLocaleString('ja-JP');
+    }
+
     function busy(button, isBusy, busyLabel) {
         if (!button) { return; }
 
@@ -131,18 +144,97 @@
         }
     }
 
+    /** ボタンを処理中にして promise を待ち、エラーはトーストに出す */
+    function withBusy(button, label, promise) {
+        busy(button, true, label);
+
+        return promise.catch(function (err) {
+            toast('error', err.message);
+        }).then(function () {
+            busy(button, false);
+        });
+    }
+
+    function stat(label, value, sub, tone) {
+        var node = el('div', 'stat' + (tone ? ' stat-' + tone : ''));
+
+        node.appendChild(el('div', 'stat-label', label));
+        node.appendChild(el('div', 'stat-value', value));
+
+        if (sub) { node.appendChild(el('div', 'stat-sub', sub)); }
+
+        return node;
+    }
+
+    function badge(type, text) {
+        return el('span', 'badge badge-' + type, text);
+    }
+
+    // bot プロセスの状態（lib/supervisor.js）の表示
+    var PROCESS_LABELS = {
+        running: ['ok', '稼働中'],
+        backoff: ['error', '異常終了・再起動待ち'],
+        stopping: ['warn', '停止中…'],
+        stopped: ['muted', '停止']
+    };
+
+    function processBadge(info) {
+        if (!info) { return badge('muted', '停止'); }
+
+        var entry = PROCESS_LABELS[info.state] || ['muted', info.state];
+
+        return badge(entry[0], entry[1]);
+    }
+
+    function processNote(info) {
+        if (!info) { return ''; }
+
+        var parts = [];
+
+        if (info.state === 'running' && info.startedAt) { parts.push('起動 ' + formatDateTime(info.startedAt)); }
+        if (info.restarts) { parts.push('再起動 ' + info.restarts + ' 回'); }
+        if (info.state === 'backoff' && info.nextStartAt) { parts.push('次の起動 ' + formatDateTime(info.nextStartAt)); }
+        if (info.lastExit && info.state !== 'running') {
+            parts.push('前回の終了: ' + (info.lastExit.error || ('code ' + info.lastExit.code + (info.lastExit.signal ? ' / ' + info.lastExit.signal : ''))));
+        }
+
+        return parts.join('・');
+    }
+
     // ------------------------------------------------------------------
     // タブ切り替え
     // ------------------------------------------------------------------
 
     var LOADERS = {
-        dashboard: loadOverview,
-        config: loadConfig,
-        lists: function () { return loadLists(['ignoreusers', 'ignoreline']); },
-        emotes: function () { return loadLists(['emoticons']).then(updateEmoteTarget); },
+        channel: loadChannel,
+        config: function () { return Promise.all([loadConfig(), loadUsage()]); },
+        lists: function () { return loadLists(['ignoreusers', 'ignoreline', 'emoticons']); },
         google: loadGoogleKey,
-        logs: loadLogs
+        channels: loadChannels,
+        shared: function () { return Promise.all([loadShared(), loadOperators()]); },
+        logs: loadLogs,
+        audit: loadAudit
     };
+
+    function allowedTab(tab) {
+        var role = tab.dataset.role;
+
+        if (role === 'owner') { return !!state.role.channel; }
+        if (role === 'operator') { return state.role.isOperator; }
+
+        return true;
+    }
+
+    function availableViews() {
+        var tabs = document.querySelectorAll('.tab');
+        var names = [];
+
+        for (var i = 0; i < tabs.length; i++) {
+            if (allowedTab(tabs[i])) { names.push(tabs[i].dataset.view); }
+        }
+
+        return names;
+    }
 
     function showView(name) {
         var tabs = document.querySelectorAll('.tab');
@@ -159,7 +251,10 @@
 
         if (!state.loaded[name] && LOADERS[name]) {
             state.loaded[name] = true;
-            LOADERS[name]().catch(function (err) { toast('error', err.message); });
+            LOADERS[name]().catch(function (err) {
+                state.loaded[name] = false;
+                toast('error', err.message);
+            });
         }
 
         if (window.location.hash !== '#' + name) {
@@ -167,129 +262,237 @@
         }
     }
 
+    /** 別のタブの内容が古くなったときに呼ぶ（次に開いたときに読み直す） */
+    function invalidate() {
+        for (var i = 0; i < arguments.length; i++) {
+            state.loaded[arguments[i]] = false;
+        }
+    }
+
     // ------------------------------------------------------------------
-    // ダッシュボード
+    // マイチャンネル（配信者）
     // ------------------------------------------------------------------
 
-    function loadOverview() {
-        return api('GET', '/api/overview').then(function (data) {
-            var stats = document.getElementById('overviewStats');
-            var notices = document.getElementById('overviewNotices');
+    function loadChannel() {
+        return api('GET', own()).then(function (data) {
+            renderSteps(data);
+            renderChannelStats(data);
 
-            clear(stats);
+            var notices = $('channelNotices');
 
-            stats.appendChild(stat('bot プロセス',
-                data.bot.running ? '稼働中' : '停止中',
-                data.bot.pid ? 'PID ' + data.bot.pid : (data.bot.message || '')));
-
-            stats.appendChild(stat('対象チャンネル',
-                data.channel || '未設定',
-                data.broadcasterId ? 'ID ' + data.broadcasterId : '配信者 ID が未設定です'));
-
-            stats.appendChild(stat('bot アカウント', data.botUserName || '未設定', ''));
-
-            stats.appendChild(stat('Google Cloud キー',
-                data.googleKey.valid ? '設定済み' : '未設定',
-                data.googleKey.valid ? (data.googleKey.projectId || '') : (data.googleKey.message || '')));
-
-            data.lists.forEach(function (list) {
-                stats.appendChild(stat(list.label, list.count + ' 件',
-                    list.error ? list.error : '最終更新 ' + formatDateTime(list.updatedAt)));
-            });
-
-            if (data.channelMatchesLogin === false) {
-                setNotice(notices, 'error', '対象チャンネル（' + (data.channel || '—') + '）がログイン中のアカウント（' +
-                    data.loginChannel + '）と異なります。bot は設定ファイルのチャンネルで動作します。' +
-                    '「基本設定」で「ログイン情報から」を使って保存し、bot を再起動してください。');
-            } else if (data.missingRequired.length > 0) {
-                setNotice(notices, 'warn', '未設定の必須項目があります。「基本設定」タブで入力してください。',
-                    data.missingRequired.map(function (item) { return item.label + '（' + item.reason + '）'; }));
+            if (!data.managerAvailable) {
+                setNotice(notices, 'error', '管理プロセスに接続できないため、bot の状態を確認できません。運営者に連絡してください。');
+            } else if (data.owner && data.owner.usage.exceeded) {
+                setNotice(notices, 'warn', '今日の翻訳文字数が上限（' + formatNumber(data.owner.usage.dailyLimit) +
+                    ' 文字）に達したため、今日は翻訳していません。上限は「設定」タブで変えられます。');
+            } else if (data.ready && data.enabled && data.process && data.process.state === 'running') {
+                setNotice(notices, 'ok', '準備はすべてそろっていて、bot は稼働中です。');
             } else {
-                setNotice(notices, 'ok', '必須項目はすべて設定されています。');
+                clear(notices);
             }
-
-            document.getElementById('botStatusText').textContent = data.bot.running
-                ? 'bot は稼働中です（PID ' + data.bot.pid + '）。'
-                : (data.bot.message || 'bot の状態を確認できませんでした。');
-
-            document.getElementById('pollIntervalText').textContent = data.streamStatusPollSeconds + ' 秒';
-
-            var brand = document.getElementById('brandChannel');
-
-            brand.textContent = data.channel ? '#' + data.channel : '管理画面';
         });
     }
 
-    function stat(label, value, sub) {
-        var node = el('div', 'stat');
+    function renderSteps(data) {
+        var list = $('channelSteps');
+        var owner = data.owner;
+        var bot = owner.bot;
+        var key = owner.googleKey;
 
-        node.appendChild(el('div', 'stat-label', label));
-        node.appendChild(el('div', 'stat-value', value));
+        clear(list);
 
-        if (sub) { node.appendChild(el('div', 'stat-sub', sub)); }
+        function step(done, title, body, actions) {
+            var item = el('li', 'step ' + (done ? 'step-done' : 'step-todo'));
+            var head = el('div', 'step-head');
 
-        return node;
+            head.appendChild(badge(done ? 'ok' : 'warn', done ? '完了' : '未完了'));
+            head.appendChild(el('strong', null, title));
+            item.appendChild(head);
+
+            if (body) { item.appendChild(el('p', 'step-body', body)); }
+
+            if (actions && actions.length) {
+                var row = el('div', 'step-actions');
+
+                actions.forEach(function (node) { row.appendChild(node); });
+                item.appendChild(row);
+            }
+
+            list.appendChild(item);
+        }
+
+        function link(label, href, primary) {
+            var node = el('a', 'btn btn-small' + (primary ? ' btn-primary' : ''), label);
+
+            node.href = href;
+            return node;
+        }
+
+        function button(label, onClick, extra) {
+            var node = el('button', 'btn btn-small' + (extra ? ' ' + extra : ''), label);
+
+            node.type = 'button';
+            node.addEventListener('click', onClick);
+            return node;
+        }
+
+        step(true, 'チャンネルの登録', '運営者が #' + data.login + ' を登録しました（' + formatDateTime(data.createdAt) + '）。');
+
+        step(!!owner.channelBotGrantedAt, 'bot の利用の許可（channel:bot）',
+            owner.channelBotGrantedAt
+                ? formatDateTime(owner.channelBotGrantedAt) + ' のログインで許可しました。bot アカウントがこのチャンネルで受信・投稿できます。'
+                : 'ログイン時に「channel:bot」の許可が得られていません。一度ログアウトし、ログインし直して許可してください。');
+
+        var botBody;
+        var botActions = [];
+
+        if (bot.connected) {
+            botBody = 'bot アカウント「' + bot.botLogin + '」を接続しています（' + formatDateTime(bot.connectedAt) + '）。';
+
+            if (bot.missingScopes.length > 0) {
+                botBody += ' 必要な許可が足りません: ' + bot.missingScopes.join(', ') + '。接続し直してください。';
+            }
+
+            botActions.push(link('接続し直す', '/auth/bot/' + encodeURIComponent(data.login)));
+            botActions.push(button('接続を解除', disconnectBot, 'btn-danger'));
+        } else {
+            botBody = '翻訳を投稿する bot 用の Twitch アカウントを接続します。ボタンを押すと Twitch のログイン画面になるので、' +
+                'チャンネル主ではなく bot 用のアカウントでログインして許可してください（チャンネル主のアカウントは使えません）。';
+            botActions.push(link('bot アカウントを接続', '/auth/bot/' + encodeURIComponent(data.login), true));
+        }
+
+        step(bot.connected && bot.missingScopes.length === 0, 'bot アカウントの接続', botBody, botActions);
+
+        // モデレーターかどうかはこの画面からは確認できないので、完了の印は付けずに案内だけする
+        var modItem = el('li', 'step step-info');
+        var modHead = el('div', 'step-head');
+
+        modHead.appendChild(badge('muted', '推奨'));
+        modHead.appendChild(el('strong', null, 'bot アカウントをモデレーターにする'));
+        modItem.appendChild(modHead);
+        modItem.appendChild(el('p', 'step-body', bot.connected
+            ? 'チャットで「/mod ' + bot.botLogin + '」と入力してください。元の発言が削除されたときに翻訳も削除するために必要です。'
+            : 'bot アカウントを接続したあと、チャットで「/mod <bot のアカウント名>」と入力してください。元の発言が削除されたときに翻訳も削除するために必要です。'));
+        list.appendChild(modItem);
+
+        step(key.exists && key.valid, 'Google Cloud のキーのアップロード',
+            key.exists && key.valid
+                ? 'プロジェクト「' + key.projectId + '」のキーをアップロード済みです。'
+                : (key.message || 'キーがまだアップロードされていません。') + ' 「Google Cloud キー」タブからアップロードしてください。',
+            key.exists && key.valid ? [] : [link('Google Cloud キーへ', '#google')]);
+
+        var running = data.process && data.process.state === 'running';
+        var startBody;
+
+        if (!data.ready) {
+            startBody = 'まだそろっていないもの: ' + data.missing.map(function (m) { return m.label; }).join('、') + '。そろうと自動で起動します。';
+        } else if (!data.enabled) {
+            startBody = '停止しています。下の「起動」で動かせます。';
+        } else {
+            startBody = running ? 'bot は稼働中です。' : 'bot が起動していません。下の状態を確認してください。';
+        }
+
+        step(running, 'bot の起動', startBody);
+    }
+
+    function renderChannelStats(data) {
+        var stats = $('channelStats');
+        var usage = data.owner.usage;
+
+        clear(stats);
+
+        var proc = el('div', 'stat');
+
+        proc.appendChild(el('div', 'stat-label', 'bot プロセス'));
+        proc.appendChild(el('div', 'stat-value')).appendChild(processBadge(data.process));
+        stats.appendChild(proc);
+
+        stats.appendChild(stat('起動の設定', data.enabled ? '有効' : '停止中', data.enabled ? '準備がそろえば自動で起動します' : '「起動」を押すまで動きません'));
+        stats.appendChild(stat('今日の翻訳文字数', formatNumber(usage.today),
+            usage.dailyLimit > 0 ? '上限 ' + formatNumber(usage.dailyLimit) + ' 文字' : '上限なし', usage.exceeded ? 'warn' : null));
+        stats.appendChild(stat('今月の翻訳文字数', formatNumber(usage.month), ''));
+
+        $('channelProcessNote').textContent = processNote(data.process);
+    }
+
+    function controlOwnChannel(button) {
+        var op = button.dataset.control;
+
+        if (op === 'stop' && !window.confirm('bot を停止します。「起動」を押すまで翻訳しません。よろしいですか？')) { return; }
+
+        withBusy(button, '処理中…', api('POST', own('/' + op), {}).then(function () {
+            toast('ok', { start: '起動しました。', stop: '停止しました。', restart: '再起動しました。' }[op]);
+            invalidate('channels', 'audit');
+            return loadChannel();
+        }));
+    }
+
+    function disconnectBot(event) {
+        if (!window.confirm('bot アカウントの接続を解除します。トークンを無効化し、bot は止まります。よろしいですか？')) { return; }
+
+        withBusy(event.target, '解除中…', api('DELETE', own('/bot'), {}).then(function (result) {
+            toast(result.revoked === false ? 'warn' : 'ok', result.revoked === false
+                ? '接続を解除しました（一部のトークンは無効化できませんでした。すでに無効だった可能性があります）。'
+                : '接続を解除しました。');
+            invalidate('audit');
+            return loadChannel();
+        }));
     }
 
     // ------------------------------------------------------------------
-    // 基本設定
+    // 設定・使用量（配信者）
     // ------------------------------------------------------------------
 
     function loadConfig() {
-        return api('GET', '/api/config').then(function (data) {
-            state.config = data;
-            renderConfig(data);
-        });
-    }
+        return api('GET', own('/config')).then(function (data) {
+            var container = $('configFields');
 
-    function renderConfig(data) {
-        var container = document.getElementById('configGroups');
-        var notices = document.getElementById('configNotices');
+            clear(container);
 
-        clear(container);
+            var fixed = el('div', 'field');
 
-        var brokenLayers = data.layers.filter(function (layer) { return layer.error; });
+            fixed.appendChild(el('label', null, '対象チャンネル / 配信者の ID'));
+            fixed.appendChild(el('p', 'mono', '#' + data.twitchChannel + ' / ' + (data.twitchBroadcasterId || '（次のログインで記録されます）')));
+            container.appendChild(fixed);
 
-        if (brokenLayers.length > 0) {
-            setNotice(notices, 'error', '設定ファイルの読み込みに失敗しました。',
-                brokenLayers.map(function (layer) { return layer.path + ': ' + layer.error; }));
-        } else {
-            clear(notices);
-        }
-
-        data.groups.forEach(function (group) {
-            var fields = data.fields.filter(function (field) { return field.group === group.key; });
-
-            if (fields.length === 0) { return; }
-
-            var panel = el('div', 'panel');
-
-            panel.appendChild(el('h2', null, group.label));
-            panel.appendChild(el('p', 'panel-help', group.help));
-
-            fields.forEach(function (field) {
-                panel.appendChild(renderField(field, data.values[field.key], data.oauth));
+            data.fields.forEach(function (field) {
+                container.appendChild(renderField('config', field, data.values[field.key]));
             });
 
-            container.appendChild(panel);
+            $('configMeta').textContent = '保存先: ' + data.meta.path +
+                (data.meta.exists ? '（最終更新 ' + formatDateTime(data.meta.updatedAt) + '）' : '');
         });
-
-        document.getElementById('configMeta').textContent =
-            '保存先: ' + data.meta.path + (data.meta.exists ? '（最終更新 ' + formatDateTime(data.meta.updatedAt) + '）' : '（未作成）');
     }
 
-    function renderField(field, value, oauth) {
+    function loadUsage() {
+        return api('GET', own('/usage')).then(function (usage) {
+            var stats = $('usageStats');
+
+            clear(stats);
+            stats.appendChild(stat('今日', formatNumber(usage.today) + ' 文字',
+                usage.dailyLimit > 0 ? '上限 ' + formatNumber(usage.dailyLimit) + ' 文字' + (usage.exceeded ? '（上限に達しました）' : '') : '上限なし',
+                usage.exceeded ? 'warn' : null));
+            stats.appendChild(stat('今月', formatNumber(usage.month) + ' 文字', ''));
+        });
+    }
+
+    /**
+     * 設定項目の入力欄。prefix ごとに .<prefix>-input を付け、保存時にまとめて集める。
+     * value: チャンネル設定は { value, isDefault }、共通の設定は { value, hasValue, source }
+     */
+    function renderField(prefix, field, value) {
         var wrapper = el('div', 'field');
         var label = el('label', null, field.label);
+        var id = prefix + '-field-' + field.key;
 
-        label.htmlFor = 'field-' + field.key;
+        label.htmlFor = id;
 
         if (field.required) { label.appendChild(el('span', 'req', '必須')); }
 
-        if (value && value.isPlaceholder) {
-            label.appendChild(el('span', 'source-tag warn-tag', '（config/default.json の説明文のまま・未設定）'));
+        if (value && value.isDefault) {
+            label.appendChild(el('span', 'source-tag', '（既定値）'));
         } else if (value && value.source) {
-            label.appendChild(el('span', 'source-tag', '（' + value.source + ' 由来）'));
+            label.appendChild(el('span', 'source-tag', '（' + value.source + '）'));
         }
 
         wrapper.appendChild(label);
@@ -297,32 +500,22 @@
         var row = el('div', 'input-row');
         var input = document.createElement('input');
 
-        input.id = 'field-' + field.key;
-        input.name = field.key;
+        input.id = id;
         input.dataset.key = field.key;
         input.dataset.secret = field.secret ? '1' : '';
-        input.className = 'config-input';
+        input.className = prefix + '-input';
         input.type = field.type === 'number' ? 'number' : (field.secret ? 'password' : 'text');
         input.autocomplete = field.secret ? 'new-password' : 'off';
         input.spellcheck = false;
 
-        // ログイン中のアカウントに固定する項目は手入力させない（「ログイン情報から」でのみ入力）
-        if (field.locked) {
-            input.readOnly = true;
-            input.classList.add('locked-input');
-        }
+        if (field.min !== undefined && field.min !== null) { input.min = field.min; }
+        if (field.max !== undefined && field.max !== null) { input.max = field.max; }
 
         if (field.secret) {
-            input.placeholder = value && value.hasValue
-                ? '設定済み（変更する場合のみ入力）'
-                : (field.placeholder || '未設定');
+            input.placeholder = value && value.hasValue ? '設定済み（変更する場合のみ入力）' : '未設定';
         } else {
             input.placeholder = field.placeholder || '';
-
-            // テンプレートの説明文はそのまま保存させたくないので入力欄には入れない
-            input.value = value && value.hasValue && value.value !== null && value.value !== undefined
-                ? String(value.value)
-                : '';
+            input.value = value && value.value !== null && value.value !== undefined ? String(value.value) : '';
         }
 
         row.appendChild(input);
@@ -340,18 +533,6 @@
             row.appendChild(toggle);
         }
 
-        if (field.oauth && oauth) {
-            var fill = el('button', 'btn btn-small', 'ログイン情報から');
-
-            fill.type = 'button';
-            fill.addEventListener('click', function () {
-                input.value = field.oauth === 'login' ? oauth.twitchChannel : oauth.twitchBroadcasterId;
-                input.classList.remove('invalid');
-                toast('info', field.label + 'に「' + input.value + '」を入力しました。保存を忘れずに。');
-            });
-            row.appendChild(fill);
-        }
-
         wrapper.appendChild(row);
 
         if (field.help) { wrapper.appendChild(el('p', 'help', field.help)); }
@@ -361,16 +542,15 @@
         return wrapper;
     }
 
-    function collectConfigValues() {
-        var inputs = document.querySelectorAll('.config-input');
+    function collectValues(prefix) {
+        var inputs = document.querySelectorAll('.' + prefix + '-input');
         var values = {};
 
         for (var i = 0; i < inputs.length; i++) {
             var input = inputs[i];
-            var isSecret = input.dataset.secret === '1';
 
-            // secret 項目は空欄なら「変更しない」の意味なので送らない
-            if (isSecret && input.value.trim() === '') { continue; }
+            // 秘密の値は空欄なら「変更しない」の意味なので送らない
+            if (input.dataset.secret === '1' && input.value.trim() === '') { continue; }
 
             values[input.dataset.key] = input.value;
         }
@@ -378,8 +558,8 @@
         return values;
     }
 
-    function showFieldErrors(fieldErrors) {
-        var inputs = document.querySelectorAll('.config-input');
+    function showFieldErrors(prefix, fieldErrors) {
+        var inputs = document.querySelectorAll('.' + prefix + '-input');
 
         for (var i = 0; i < inputs.length; i++) {
             var input = inputs[i];
@@ -392,30 +572,15 @@
         }
     }
 
-    function saveConfig(event) {
-        event.preventDefault();
-
-        var button = document.getElementById('saveConfig');
-        var notices = document.getElementById('configNotices');
-
+    function submitForm(prefix, method, url, button, notices, onSaved) {
         busy(button, true, '保存中…');
 
-        api('PUT', '/api/config', { values: collectConfigValues() }).then(function (result) {
-            showFieldErrors(null);
-            toast('ok', '設定を保存しました。');
-
-            if (result.missingRequired.length > 0) {
-                setNotice(notices, 'warn', 'まだ未設定の必須項目があります。', result.missingRequired);
-            } else {
-                setNotice(notices, 'ok', '設定を保存しました。bot に反映するには bot の再起動が必要です。');
-            }
-
-            state.loaded.dashboard = false;
-
-            return loadConfig();
+        return api(method, url, { values: collectValues(prefix) }).then(function (result) {
+            showFieldErrors(prefix, null);
+            onSaved(result);
         }).catch(function (err) {
             if (err.data && err.data.fieldErrors) {
-                showFieldErrors(err.data.fieldErrors);
+                showFieldErrors(prefix, err.data.fieldErrors);
                 setNotice(notices, 'error', '入力内容にエラーがあります。各項目のメッセージを確認してください。');
             } else {
                 setNotice(notices, 'error', err.message);
@@ -427,28 +592,45 @@
         });
     }
 
+    function saveConfig(event) {
+        event.preventDefault();
+
+        var notices = $('configNotices');
+
+        submitForm('config', 'PUT', own('/config'), $('saveConfig'), notices, function (result) {
+            var text = result.saved.length === 0
+                ? '変更はありませんでした。'
+                : '設定を保存しました。' + (result.restarted ? '動いていた bot を再起動して反映しました。' : 'bot の次の起動から反映されます。');
+
+            setNotice(notices, 'ok', text);
+            toast('ok', text);
+            invalidate('channel', 'audit');
+
+            return Promise.all([loadConfig(), loadUsage()]);
+        });
+    }
+
     // ------------------------------------------------------------------
-    // 各種リスト
+    // リスト・エモート（配信者）
     // ------------------------------------------------------------------
 
     function loadLists(ids) {
-        return api('GET', '/api/lists').then(function (data) {
+        return api('GET', own('/lists')).then(function (data) {
             ids.forEach(function (id) {
                 var panel = document.querySelector('[data-list="' + id + '"]');
 
                 if (!panel || !data[id]) { return; }
 
-                renderList(panel, id, data[id]);
+                renderList(panel, data[id]);
             });
         });
     }
 
-    function renderList(panel, id, data) {
+    function renderList(panel, data) {
         panel.querySelector('.list-help').textContent = data.help;
         panel.querySelector('.list-input').value = data.items.join('\n');
         panel.querySelector('.list-input').placeholder = data.placeholder;
         panel.querySelector('.list-count').textContent = data.items.length + ' 件';
-        panel.querySelector('.list-path').textContent = 'ファイル: ' + data.path;
         panel.querySelector('.list-updated').textContent = '最終更新: ' + formatDateTime(data.updatedAt);
 
         var notices = panel.querySelector('.list-notices');
@@ -471,7 +653,7 @@
 
         busy(button, true, '保存中…');
 
-        return api('PUT', '/api/lists/' + id, { items: items }).then(function (result) {
+        return api('PUT', own('/lists/' + encodeURIComponent(id)), { items: items }).then(function (result) {
             textarea.value = result.items.join('\n');
             panel.querySelector('.list-count').textContent = result.items.length + ' 件';
             panel.querySelector('.list-updated').textContent = '最終更新: ' + formatDateTime(result.updatedAt);
@@ -482,9 +664,11 @@
                 message += '（重複 ' + result.removedDuplicates + ' 件を除きました）';
             }
 
-            setNotice(notices, 'ok', message + ' 稼働中の bot に反映するには、ダッシュボードの「bot に反映する」を実行してください。');
+            message += result.reloaded ? ' 動いている bot に反映しました。' : ' bot の次の起動から反映されます。';
+
+            setNotice(notices, 'ok', message);
             toast('ok', message);
-            state.loaded.dashboard = false;
+            invalidate('audit');
         }).catch(function (err) {
             setNotice(notices, 'error', err.message, err.data ? err.data.errors : null);
             toast('error', err.message);
@@ -493,84 +677,35 @@
         });
     }
 
-    // ------------------------------------------------------------------
-    // エモート更新
-    // ------------------------------------------------------------------
+    function refreshEmotes(event) {
+        var panel = document.querySelector('[data-list="emoticons"]');
+        var notices = panel.querySelector('.list-notices');
 
-    function updateEmoteTarget() {
-        return api('GET', '/api/overview').then(function (data) {
-            var target = document.getElementById('emoteTarget');
+        setNotice(notices, 'info', 'BetterTTV / FrankerFaceZ からエモート一覧を取得しています…');
 
-            if (!data.channel) {
-                target.textContent = '対象チャンネルが未設定です。';
-                return;
-            }
+        withBusy(event.target, '取得中…', api('POST', own('/emotes/refresh'), {}).then(function (result) {
+            var text = 'エモート一覧を ' + result.count + ' 件で更新しました。';
 
-            target.textContent = '対象: #' + data.channel +
-                (data.broadcasterId ? '（配信者 ID ' + data.broadcasterId + '）' : '（配信者 ID 未設定のため BTTV チャンネルエモートは取得されません）');
-        });
-    }
+            toast('ok', text);
+            invalidate('audit');
 
-    function refreshEmotes(save) {
-        var button = document.getElementById(save ? 'updateEmotes' : 'previewEmotes');
-        var notices = document.getElementById('emoteNotices');
-        var mode = document.querySelector('input[name="emoteMode"]:checked').value;
-
-        busy(button, true, '取得中…');
-        setNotice(notices, 'info', 'BTTV / FFZ からエモート一覧を取得しています…');
-
-        return api('POST', '/api/emotes/refresh', { mode: mode, save: save }).then(function (result) {
-            renderEmoteSources(result.sources);
-
-            var summary = result.saved
-                ? 'emoticons.json を更新しました（' + result.before + ' 件 → ' + result.after + ' 件、追加 ' + result.added + ' 件' +
-                  (result.removed > 0 ? '、削除 ' + result.removed + ' 件' : '') + '）。'
-                : '取得結果: ' + result.after + ' 件（現在 ' + result.before + ' 件、追加候補 ' + result.added + ' 件' +
-                  (result.removed > 0 ? '、削除候補 ' + result.removed + ' 件' : '') + '）。まだ保存していません。';
-
-            setNotice(notices, result.warnings.length > 0 ? 'warn' : 'ok', summary, result.warnings);
-            toast(result.warnings.length > 0 ? 'warn' : 'ok', summary);
-
-            if (result.saved) {
-                state.loaded.dashboard = false;
-                return loadLists(['emoticons']);
-            }
-
-            return null;
+            // 読み直すと通知欄が消えるので、結果は読み直したあとに出す
+            return loadLists(['emoticons']).then(function () {
+                setNotice(notices, result.warnings.length > 0 ? 'warn' : 'ok', text, result.warnings);
+            });
         }).catch(function (err) {
             setNotice(notices, 'error', err.message, err.data ? err.data.errors : null);
-            toast('error', err.message);
-        }).then(function () {
-            busy(button, false);
-        });
-    }
-
-    function renderEmoteSources(sources) {
-        var list = document.getElementById('emoteSources');
-
-        clear(list);
-        list.classList.remove('hidden');
-
-        sources.forEach(function (source) {
-            var item = el('li');
-
-            item.appendChild(el('span', 'badge ' + (source.ok ? 'badge-ok' : 'badge-error'), source.ok ? 'OK' : '失敗'));
-            item.appendChild(el('span', null, source.label));
-            item.appendChild(el('span', 'count', source.ok
-                ? source.count + ' 件取得 / ' + source.added + ' 件追加'
-                : (source.error || '取得できませんでした')));
-
-            list.appendChild(item);
-        });
+            throw err;
+        }));
     }
 
     // ------------------------------------------------------------------
-    // Google Cloud キー
+    // Google Cloud キー（配信者）
     // ------------------------------------------------------------------
 
     function loadGoogleKey() {
-        return api('GET', '/api/google-key').then(function (data) {
-            var table = document.getElementById('googleStatus');
+        return api('GET', own('/google-key')).then(function (data) {
+            var table = $('googleStatus');
             var status = data.status;
 
             clear(table);
@@ -585,8 +720,7 @@
                 body.appendChild(tr);
             }
 
-            row('設定されているパス', status.configured);
-            row('ファイルの状態', status.exists ? (status.valid ? '正常なサービスアカウントキー' : (status.message || '形式が不正です')) : (status.message || '見つかりません'));
+            row('状態', status.exists ? (status.valid ? '正常なサービスアカウントキー' : (status.message || '形式が不正です')) : '未アップロード');
             row('プロジェクト ID', status.projectId);
             row('サービスアカウント', status.clientEmail);
             row('パーミッション', status.mode);
@@ -594,20 +728,21 @@
 
             table.appendChild(body);
 
-            var notices = document.getElementById('googleNotices');
+            $('deleteKey').disabled = !status.exists;
+
+            var notices = $('googleNotices');
 
             if (!status.exists || !status.valid) {
-                setNotice(notices, 'warn', 'まだ有効なサービスアカウントキーが設定されていません。下のフォームからアップロードしてください。' +
-                    '（既定の保存先: ' + data.defaultPath + '）');
+                setNotice(notices, 'warn', 'まだ有効なサービスアカウントキーがありません。下からアップロードしてください。');
             } else {
-                setNotice(notices, 'ok', 'サービスアカウントキーは設定済みです。');
+                setNotice(notices, 'ok', 'サービスアカウントキーはアップロード済みです。差し替える場合は、新しいキーをアップロードしてください。');
             }
         });
     }
 
     function handleKeyFile(file) {
-        var preview = document.getElementById('keyPreviewText');
-        var uploadButton = document.getElementById('uploadKey');
+        var preview = $('keyPreviewText');
+        var uploadButton = $('uploadKey');
 
         state.pendingKey = null;
         uploadButton.disabled = true;
@@ -642,7 +777,7 @@
                 return;
             }
 
-            state.pendingKey = { fileName: file.name, content: text };
+            state.pendingKey = { content: text };
             uploadButton.disabled = false;
 
             preview.textContent = '選択中: ' + file.name +
@@ -660,25 +795,20 @@
     function uploadKey() {
         if (!state.pendingKey) { return; }
 
-        var button = document.getElementById('uploadKey');
-        var notices = document.getElementById('googleNotices');
+        var button = $('uploadKey');
+        var notices = $('googleNotices');
 
         busy(button, true, 'アップロード中…');
 
-        api('POST', '/api/google-key', {
-            fileName: state.pendingKey.fileName,
-            content: state.pendingKey.content
-        }).then(function (result) {
-            setNotice(notices, 'ok', 'キーを ' + result.path + ' に保存し、設定（' + result.applied.join(', ') + '）に反映しました。' +
-                ' bot に反映するには bot の再起動が必要です。', result.warnings);
+        api('POST', own('/google-key'), { content: state.pendingKey.content }).then(function (result) {
+            setNotice(notices, 'ok', 'キー（プロジェクト「' + result.projectId + '」）を保存しました。' +
+                (result.restarted ? '動いていた bot を再起動して反映しました。' : ''), result.warnings);
             toast('ok', 'サービスアカウントキーを保存しました。');
 
             state.pendingKey = null;
-            button.disabled = true;
-            document.getElementById('keyPreviewText').textContent = '';
-            document.getElementById('keyFile').value = '';
-            state.loaded.config = false;
-            state.loaded.dashboard = false;
+            $('keyPreviewText').textContent = '';
+            $('keyFile').value = '';
+            invalidate('channel', 'audit');
 
             return loadGoogleKey();
         }).catch(function (err) {
@@ -686,44 +816,356 @@
             toast('error', err.message);
         }).then(function () {
             busy(button, false);
+            button.disabled = !state.pendingKey;
         });
+    }
+
+    function deleteKey(event) {
+        if (!window.confirm('Google Cloud のキーを削除します。bot は翻訳できなくなり停止します。よろしいですか？')) { return; }
+
+        withBusy(event.target, '削除中…', api('DELETE', own('/google-key'), {}).then(function (result) {
+            toast('ok', 'キーを削除しました。');
+            invalidate('channel', 'audit');
+
+            return loadGoogleKey().then(function () {
+                setNotice($('googleNotices'), 'warn', result.notice);
+            });
+        }));
+    }
+
+    // ------------------------------------------------------------------
+    // チャンネル管理（運営者）
+    // ------------------------------------------------------------------
+
+    function loadChannels() {
+        return api('GET', '/api/channels').then(function (data) {
+            var tbody = $('channelsTable').querySelector('tbody');
+
+            clear(tbody);
+
+            if (!data.managerAvailable) {
+                setNotice($('channelsNotices'), 'error', '管理プロセスに接続できないため、bot の状態を取得できません。');
+            } else {
+                clear($('channelsNotices'));
+            }
+
+            if (data.channels.length === 0) {
+                var empty = el('tr');
+                var cell = el('td', 'loading', 'まだチャンネルが登録されていません。');
+
+                cell.colSpan = 5;
+                empty.appendChild(cell);
+                tbody.appendChild(empty);
+            }
+
+            data.channels.forEach(function (channel) {
+                tbody.appendChild(channelRow(channel));
+            });
+
+            var eventsub = data.eventsub;
+
+            $('eventsubNote').textContent = !eventsub ? '' : (eventsub.configured
+                ? 'EventSub: 受信口 ' + (eventsub.callbackUrl || '—') +
+                    (eventsub.lastSync ? '・最終同期 ' + formatDateTime(eventsub.lastSync.at) + (eventsub.lastSync.error ? '（失敗: ' + eventsub.lastSync.error + '）' : '') : '') +
+                    (eventsub.revocations && eventsub.revocations.length ? '・取り消し ' + eventsub.revocations.length + ' 件' : '')
+                : 'EventSub は無効です（「共通の設定」の Twitch アプリ・受信口の URL・署名用シークレットを確認してください）。チャットのイベントは届きません。');
+        });
+    }
+
+    function channelRow(channel) {
+        var tr = el('tr');
+        var name = el('td');
+
+        name.appendChild(el('strong', null, '#' + channel.login));
+
+        if (state.role.channel === channel.login) { name.appendChild(el('span', 'source-tag', '（自分）')); }
+
+        tr.appendChild(name);
+
+        var ready = el('td');
+
+        ready.appendChild(channel.ready ? badge('ok', 'そろっている') : badge('warn', '未完了'));
+
+        if (!channel.ready) {
+            ready.appendChild(el('div', 'cell-note', channel.missing.map(function (m) { return m.label; }).join('、')));
+        }
+
+        tr.appendChild(ready);
+
+        var proc = el('td');
+
+        proc.appendChild(processBadge(channel.process));
+
+        if (!channel.enabled) { proc.appendChild(el('div', 'cell-note', '停止に設定')); }
+
+        var note = processNote(channel.process);
+
+        if (note) { proc.appendChild(el('div', 'cell-note', note)); }
+
+        tr.appendChild(proc);
+
+        tr.appendChild(el('td', 'cell-note', formatDateTime(channel.createdAt) + (channel.createdBy ? '・' + channel.createdBy : '')));
+
+        // td 自体を flex にすると表の罫線が崩れるので、中に箱を作って並べる
+        var actionCell = el('td');
+        var actions = el('div', 'cell-actions');
+
+        [['start', '起動'], ['restart', '再起動'], ['stop', '停止']].forEach(function (pair) {
+            var button = el('button', 'btn btn-small', pair[1]);
+
+            button.type = 'button';
+            button.addEventListener('click', function () { controlChannel(channel.login, pair[0], button); });
+            actions.appendChild(button);
+        });
+
+        var logs = el('button', 'btn btn-small', 'ログ');
+
+        logs.type = 'button';
+        logs.addEventListener('click', function () {
+            state.logTarget = 'channel:' + channel.login;
+            invalidate('logs');
+            showView('logs');
+        });
+        actions.appendChild(logs);
+
+        var remove = el('button', 'btn btn-small btn-danger', '削除');
+
+        remove.type = 'button';
+        remove.addEventListener('click', function () { deleteChannel(channel.login, remove); });
+        actions.appendChild(remove);
+        actionCell.appendChild(actions);
+
+        tr.appendChild(actionCell);
+
+        return tr;
+    }
+
+    function controlChannel(login, op, button) {
+        if (op === 'stop' && !window.confirm('#' + login + ' の bot を停止します。よろしいですか？')) { return; }
+
+        withBusy(button, '…', api('POST', '/api/channels/' + encodeURIComponent(login) + '/' + op, {}).then(function () {
+            toast('ok', '#' + login + ': ' + { start: '起動しました。', stop: '停止しました。', restart: '再起動しました。' }[op]);
+            invalidate('channel', 'audit');
+            return loadChannels();
+        }));
+    }
+
+    function registerChannel(event) {
+        event.preventDefault();
+
+        var input = $('registerLogin');
+        var notices = $('registerNotices');
+        var login = input.value.trim();
+
+        if (!login) { return; }
+
+        withBusy($('registerButton'), '登録中…', api('POST', '/api/channels', { login: login }).then(function (result) {
+            input.value = '';
+            setNotice(notices, 'ok', '#' + result.channel.login + ' を登録しました。配信者本人にこの管理画面へのログインを案内してください。', result.warnings);
+            invalidate('audit');
+
+            return loadChannels();
+        }).catch(function (err) {
+            setNotice(notices, 'error', err.message);
+            throw err;
+        }));
+    }
+
+    var STEP_LABELS = {
+        stop: 'bot の停止',
+        subscriptions: 'EventSub の購読の削除',
+        revoke: 'bot のトークンの無効化',
+        files: 'キー・トークン・設定・リスト・ログ・使用量の削除',
+        sessions: '配信者のセッションの無効化',
+        audit: '操作の記録'
+    };
+
+    function deleteChannel(login, button) {
+        var typed = window.prompt('#' + login + ' を削除します。bot のトークンと Google Cloud のキーを含め、このチャンネルのデータはすべて削除され、元に戻せません。\n' +
+            '確認のため、ログイン名（' + login + '）を入力してください。');
+
+        if (typed === null) { return; }
+
+        if (typed.trim().toLowerCase() !== login) {
+            toast('error', 'ログイン名が一致しないため、削除しませんでした。');
+            return;
+        }
+
+        withBusy(button, '削除中…', api('DELETE', '/api/channels/' + encodeURIComponent(login), { confirm: typed.trim() }).then(function (result) {
+            renderDeleteResult(login, result);
+            toast(result.steps.every(function (s) { return s.ok; }) ? 'ok' : 'warn', '#' + login + ' を削除しました。');
+            invalidate('channel', 'audit', 'logs');
+
+            return loadChannels();
+        }));
+    }
+
+    function renderDeleteResult(login, result) {
+        var container = $('deleteResult');
+
+        clear(container);
+        $('deleteResultPanel').classList.remove('hidden');
+
+        container.appendChild(el('p', null, '#' + login + ' の削除の手順と結果:'));
+
+        var list = el('ul', 'result-list');
+
+        result.steps.forEach(function (step) {
+            var item = el('li');
+
+            item.appendChild(badge(step.ok ? 'ok' : 'error', step.ok ? '完了' : '失敗'));
+            item.appendChild(el('span', null, ' ' + (STEP_LABELS[step.step] || step.step) + (step.detail ? '（' + step.detail + '）' : '')));
+            list.appendChild(item);
+        });
+
+        container.appendChild(list);
+
+        var notices = el('div');
+
+        setNotice(notices, 'warn', '配信者に次のことを伝えてください。', result.notices);
+        container.appendChild(notices);
+    }
+
+    // ------------------------------------------------------------------
+    // 共通の設定・運営者（運営者）
+    // ------------------------------------------------------------------
+
+    function loadShared() {
+        return api('GET', '/api/shared/config').then(function (data) {
+            var container = $('sharedFields');
+
+            clear(container);
+
+            data.fields.forEach(function (field) {
+                container.appendChild(renderField('shared', field, data.values[field.key]));
+            });
+
+            $('sharedMeta').textContent = data.notice;
+        });
+    }
+
+    function saveShared(event) {
+        event.preventDefault();
+
+        var notices = $('sharedNotices');
+
+        submitForm('shared', 'PUT', '/api/shared/config', $('saveShared'), notices, function (result) {
+            setNotice(notices, 'ok', result.saved.length === 0 ? '変更はありませんでした。' : '保存しました。' + result.notice);
+            toast('ok', '共通の設定を保存しました。');
+            invalidate('audit');
+
+            return loadShared();
+        });
+    }
+
+    function loadOperators() {
+        return api('GET', '/api/shared/operators').then(renderOperators);
+    }
+
+    function renderOperators(data) {
+        $('operatorsInput').value = data.fromFile.join('\n');
+        $('operatorsPath').textContent = '保存先: ' + data.path;
+
+        var fixed = data.fromEnv.concat(data.fromLegacy);
+
+        $('operatorsFixed').textContent = fixed.length > 0
+            ? 'このほかに、環境変数・旧形式の設定で運営者になっている人（画面からは変更できません）: ' + fixed.join(', ')
+            : '';
+    }
+
+    function saveOperators(event) {
+        var notices = $('operatorsNotices');
+        var names = $('operatorsInput').value.split(/[\s,]+/).map(function (s) { return s.trim(); })
+            .filter(function (s) { return s !== ''; });
+
+        withBusy(event.target, '保存中…', api('PUT', '/api/shared/operators', { operators: names }).then(function (result) {
+            renderOperators(result);
+            setNotice(notices, 'ok', '運営者の一覧を保存しました（' + result.operators.join(', ') + '）。');
+            invalidate('audit');
+        }).catch(function (err) {
+            setNotice(notices, 'error', err.message);
+            throw err;
+        }));
     }
 
     // ------------------------------------------------------------------
     // ログ
     // ------------------------------------------------------------------
 
+    /** 選べるログの範囲: 自分のチャンネル、（運営者は）各チャンネルとシステム */
+    function logScopes() {
+        var scopes = [];
+
+        if (state.role.channel) { scopes.push({ key: 'channel:' + state.role.channel, label: '#' + state.role.channel, base: own('/logs') }); }
+
+        if (!state.role.isOperator) { return Promise.resolve(scopes); }
+
+        scopes.push({ key: 'system', label: 'システム', base: '/api/system/logs' });
+
+        return api('GET', '/api/channels').then(function (data) {
+            data.channels.forEach(function (channel) {
+                if (channel.login === state.role.channel) { return; }
+
+                scopes.push({ key: 'channel:' + channel.login, label: '#' + channel.login, base: '/api/channels/' + encodeURIComponent(channel.login) + '/logs' });
+            });
+
+            return scopes;
+        });
+    }
+
     function loadLogs() {
-        return api('GET', '/api/logs').then(function (data) {
-            var select = document.getElementById('logSelect');
+        return logScopes().then(function (scopes) {
+            var lists = scopes.map(function (scope) {
+                return api('GET', scope.base).then(function (data) {
+                    return data.logs.map(function (log) {
+                        return { value: scope.base + '/' + encodeURIComponent(log.id), scope: scope.key, label: scope.label + ' — ' + log.label + (log.exists ? '' : '（未作成）') };
+                    });
+                });
+            });
+
+            return Promise.all(lists);
+        }).then(function (groups) {
+            var select = $('logSelect');
             var current = select.value;
 
             clear(select);
 
-            data.logs.forEach(function (log) {
-                var option = el('option', null, log.label + '（' + log.path + (log.exists ? '' : '・未作成') + '）');
+            groups.forEach(function (options) {
+                options.forEach(function (item) {
+                    var option = el('option', null, item.label);
 
-                option.value = log.id;
-                select.appendChild(option);
+                    option.value = item.value;
+                    option.dataset.scope = item.scope;
+                    select.appendChild(option);
+                });
             });
 
-            if (current) { select.value = current; }
+            // チャンネル管理の「ログ」から来たときは、そのチャンネルを選ぶ
+            if (state.logTarget) {
+                var target = select.querySelector('option[data-scope="' + state.logTarget + '"]');
+
+                if (target) { select.value = target.value; }
+                state.logTarget = null;
+            } else if (current && select.querySelector('option[value="' + current + '"]')) {
+                select.value = current;
+            }
 
             return loadLog();
         });
     }
 
     function loadLog() {
-        var id = document.getElementById('logSelect').value || 'bot';
-        var lines = document.getElementById('logLines').value;
-        var problemsOnly = document.getElementById('logProblemsOnly').checked;
-        var url = '/api/logs/' + encodeURIComponent(id) + '?lines=' + encodeURIComponent(lines) +
-            (problemsOnly ? '&level=warn' : '');
+        var url = $('logSelect').value;
 
-        return api('GET', url).then(function (data) {
-            var output = document.getElementById('logOutput');
-            var notices = document.getElementById('logNotices');
-            var meta = document.getElementById('logMeta');
+        if (!url) { return Promise.resolve(); }
+
+        var lines = $('logLines').value;
+        var problemsOnly = $('logProblemsOnly').checked;
+
+        return api('GET', url + '?lines=' + encodeURIComponent(lines) + (problemsOnly ? '&level=warn' : '')).then(function (data) {
+            var output = $('logOutput');
+            var notices = $('logNotices');
+            var meta = $('logMeta');
 
             if (!data.exists) {
                 setNotice(notices, 'info', data.error || 'ログファイルはまだありません。');
@@ -750,17 +1192,106 @@
     }
 
     // ------------------------------------------------------------------
+    // 操作の記録
+    // ------------------------------------------------------------------
+
+    var ACTION_LABELS = {
+        'login': 'ログイン',
+        'channel.register': 'チャンネルの登録',
+        'channel.delete': 'チャンネルの削除',
+        'channel.start': 'bot の起動',
+        'channel.stop': 'bot の停止',
+        'channel.restart': 'bot の再起動',
+        'config.update': '設定の変更',
+        'lists.update': 'リストの変更',
+        'emotes.refresh': 'エモートの取得',
+        'googleKey.upload': 'Google Cloud キーのアップロード',
+        'googleKey.delete': 'Google Cloud キーの削除',
+        'bot.connect': 'bot アカウントの接続',
+        'bot.disconnect': 'bot アカウントの接続解除',
+        'shared.config': '共通の設定の変更',
+        'operators.update': '運営者の一覧の変更'
+    };
+
+    function auditScopes() {
+        var select = $('auditScope');
+
+        if (select.options.length > 0) { return; }
+
+        if (state.role.isOperator) {
+            var all = el('option', null, 'すべて');
+
+            all.value = '/api/audit';
+            select.appendChild(all);
+        }
+
+        if (state.role.channel) {
+            var mine = el('option', null, '#' + state.role.channel);
+
+            mine.value = own('/audit');
+            select.appendChild(mine);
+        }
+
+        select.classList.toggle('hidden', select.options.length < 2);
+    }
+
+    function describeDetail(detail) {
+        if (!detail) { return ''; }
+
+        return Object.keys(detail).map(function (key) {
+            var value = detail[key];
+
+            return key + ': ' + (Array.isArray(value) ? value.join(', ') : (value === null ? '—' : String(value)));
+        }).join(' / ');
+    }
+
+    function loadAudit() {
+        auditScopes();
+
+        return api('GET', $('auditScope').value + '?limit=500').then(function (data) {
+            var tbody = $('auditTable').querySelector('tbody');
+
+            clear(tbody);
+
+            if (data.entries.length === 0) {
+                setNotice($('auditNotices'), 'info', 'まだ記録はありません。');
+                return;
+            }
+
+            clear($('auditNotices'));
+
+            data.entries.forEach(function (entry) {
+                var tr = el('tr');
+
+                tr.appendChild(el('td', 'cell-note', formatDateTime(entry.at)));
+                tr.appendChild(el('td', null, entry.actor || '—'));
+                tr.appendChild(el('td', null, entry.channel ? '#' + entry.channel : '—'));
+                tr.appendChild(el('td', null, ACTION_LABELS[entry.action] || entry.action));
+                tr.appendChild(el('td', 'cell-note', describeDetail(entry.detail)));
+                tbody.appendChild(tr);
+            });
+        });
+    }
+
+    // ------------------------------------------------------------------
     // 初期化
     // ------------------------------------------------------------------
 
     function wire() {
-        document.getElementById('tabs').addEventListener('click', function (event) {
+        $('tabs').addEventListener('click', function (event) {
             var tab = event.target.closest('.tab');
 
             if (tab) { showView(tab.dataset.view); }
         });
 
-        document.getElementById('logoutButton').addEventListener('click', function () {
+        // 手順の「Google Cloud キーへ」などのページ内リンク
+        window.addEventListener('hashchange', function () {
+            var name = window.location.hash.slice(1);
+
+            if (availableViews().indexOf(name) !== -1) { showView(name); }
+        });
+
+        $('logoutButton').addEventListener('click', function () {
             api('POST', '/auth/logout', {}).then(function () {
                 window.location.href = '/login';
             }).catch(function (err) {
@@ -768,53 +1299,20 @@
             });
         });
 
-        document.getElementById('refreshOverview').addEventListener('click', function (event) {
-            busy(event.target, true, '読み込み中…');
-            loadOverview().catch(function (err) { toast('error', err.message); })
-                .then(function () { busy(event.target, false); });
+        $('refreshChannel').addEventListener('click', function (event) {
+            withBusy(event.target, '読み込み中…', loadChannel());
         });
 
-        document.getElementById('reloadBot').addEventListener('click', function (event) {
-            busy(event.target, true, '送信中…');
-            api('POST', '/api/bot/reload', {}).then(function (result) {
-                toast('ok', result.message + ' リストを再読み込みしました。');
-            }).catch(function (err) {
-                toast('error', err.message);
-            }).then(function () {
-                busy(event.target, false);
-                return loadOverview();
-            });
+        document.querySelectorAll('[data-control]').forEach(function (button) {
+            button.addEventListener('click', function () { controlOwnChannel(button); });
         });
 
-        document.getElementById('configForm').addEventListener('submit', saveConfig);
-
-        document.getElementById('reloadConfig').addEventListener('click', function () {
+        $('configForm').addEventListener('submit', saveConfig);
+        $('reloadConfig').addEventListener('click', function () {
+            showFieldErrors('config', null);
+            clear($('configNotices'));
             loadConfig().then(function () { toast('info', '設定を再読み込みしました。'); })
                 .catch(function (err) { toast('error', err.message); });
-        });
-
-        document.getElementById('fillFromOauth').addEventListener('click', function () {
-            if (!state.config || !state.config.oauth) { return; }
-
-            var filled = [];
-
-            state.config.fields.filter(function (field) { return field.oauth; }).forEach(function (field) {
-                var input = document.getElementById('field-' + field.key);
-
-                if (!input) { return; }
-
-                input.value = field.oauth === 'login'
-                    ? state.config.oauth.twitchChannel
-                    : state.config.oauth.twitchBroadcasterId;
-                input.classList.remove('invalid');
-                filled.push(field.label);
-            });
-
-            if (filled.length > 0) {
-                setNotice(document.getElementById('configNotices'), 'info',
-                    'ログイン中のアカウント（' + state.config.oauth.twitchChannel + '）の情報を ' +
-                    filled.join(' / ') + ' に入力しました。内容を確認して保存してください。');
-            }
         });
 
         document.querySelectorAll('[data-list]').forEach(function (panel) {
@@ -825,11 +1323,10 @@
             });
         });
 
-        document.getElementById('previewEmotes').addEventListener('click', function () { refreshEmotes(false); });
-        document.getElementById('updateEmotes').addEventListener('click', function () { refreshEmotes(true); });
+        $('refreshEmotes').addEventListener('click', refreshEmotes);
 
-        var drop = document.getElementById('keyDrop');
-        var fileInput = document.getElementById('keyFile');
+        var drop = $('keyDrop');
+        var fileInput = $('keyFile');
 
         drop.addEventListener('click', function () { fileInput.click(); });
         drop.addEventListener('keydown', function (event) {
@@ -851,46 +1348,85 @@
 
         fileInput.addEventListener('change', function () { handleKeyFile(fileInput.files[0]); });
 
+        $('uploadKey').addEventListener('click', uploadKey);
+        $('deleteKey').addEventListener('click', deleteKey);
+        $('refreshGoogle').addEventListener('click', function (event) {
+            withBusy(event.target, '読み込み中…', loadGoogleKey());
+        });
+
+        $('refreshChannels').addEventListener('click', function (event) {
+            withBusy(event.target, '読み込み中…', loadChannels());
+        });
+        $('registerForm').addEventListener('submit', registerChannel);
+
+        $('sharedForm').addEventListener('submit', saveShared);
+        $('saveOperators').addEventListener('click', saveOperators);
+
         var reloadLog = function () {
             loadLog().catch(function (err) { toast('error', err.message); });
         };
 
-        document.getElementById('logSelect').addEventListener('change', reloadLog);
-        document.getElementById('logLines').addEventListener('change', reloadLog);
-        document.getElementById('logProblemsOnly').addEventListener('change', reloadLog);
-        document.getElementById('refreshLogs').addEventListener('click', function (event) {
-            busy(event.target, true, '読み込み中…');
-            loadLogs().catch(function (err) { toast('error', err.message); })
-                .then(function () { busy(event.target, false); });
+        $('logSelect').addEventListener('change', reloadLog);
+        $('logLines').addEventListener('change', reloadLog);
+        $('logProblemsOnly').addEventListener('change', reloadLog);
+        $('refreshLogs').addEventListener('click', function (event) {
+            withBusy(event.target, '読み込み中…', loadLogs());
         });
 
-        document.getElementById('uploadKey').addEventListener('click', uploadKey);
-        document.getElementById('refreshGoogle').addEventListener('click', function (event) {
-            busy(event.target, true, '読み込み中…');
-            loadGoogleKey().catch(function (err) { toast('error', err.message); })
-                .then(function () { busy(event.target, false); });
+        $('auditScope').addEventListener('change', function () {
+            loadAudit().catch(function (err) { toast('error', err.message); });
         });
+        $('refreshAudit').addEventListener('click', function (event) {
+            withBusy(event.target, '読み込み中…', loadAudit());
+        });
+    }
+
+    function applyRole() {
+        var tabs = document.querySelectorAll('.tab');
+
+        for (var i = 0; i < tabs.length; i++) {
+            tabs[i].classList.toggle('hidden', !allowedTab(tabs[i]));
+        }
+
+        var labels = [];
+
+        if (state.role.channel) { labels.push('#' + state.role.channel); }
+        if (state.role.isOperator) { labels.push('運営者'); }
+
+        $('brandRole').textContent = labels.join('・') || '管理画面';
     }
 
     api('GET', '/api/session').then(function (data) {
         state.csrfToken = data.csrfToken;
         state.user = data.user;
+        state.role = data.role;
 
-        document.getElementById('userName').textContent = data.user.displayName || data.user.login;
+        $('userName').textContent = data.user.displayName || data.user.login;
 
         if (data.user.profileImageUrl) {
-            var avatar = document.getElementById('userAvatar');
+            var avatar = $('userAvatar');
 
             avatar.src = data.user.profileImageUrl;
             avatar.alt = data.user.displayName || data.user.login;
             avatar.classList.remove('hidden');
         }
 
+        applyRole();
         wire();
 
-        var initial = (window.location.hash || '#dashboard').slice(1);
+        if (!data.managerAvailable) {
+            setNotice($('globalNotices'), 'error', '管理プロセスに接続されていません。bot の起動・停止や状態の確認はできません。');
+        }
 
-        showView(LOADERS[initial] ? initial : 'dashboard');
+        // bot アカウントの接続（OAuth）から戻ったときの結果
+        if (data.flash) {
+            toast(data.flash.type === 'ok' ? 'ok' : 'error', data.flash.text);
+        }
+
+        var views = availableViews();
+        var initial = (window.location.hash || '').slice(1);
+
+        showView(views.indexOf(initial) !== -1 ? initial : views[0]);
     }).catch(function (err) {
         toast('error', err.message);
     });

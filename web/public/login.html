@@ -20,11 +20,10 @@
     <a class="btn btn-twitch" id="loginButton" href="/auth/twitch">Twitch でログイン</a>
 
     <p class="login-note">
-        ログインには、管理画面の設定ファイル（<code>config/webui.json</code>）で
-        許可されている Twitch アカウントが必要です。<br>
-        ログイン時に取得したチャンネル名とユーザー ID は、
-        <code>twitchChannel</code> / <code>twitchBroadcasterId</code> の自動入力に利用されます。
-        追加の権限（スコープ）は要求しません。
+        ログインできるのは、運営者と、運営者が登録したチャンネルの配信者です。<br>
+        ログイン時に <code>channel:bot</code> の許可を求めます。登録済みの配信者が許可すると、
+        bot アカウントがそのチャンネルで翻訳を受信・投稿できるようになります（許可は Twitch の「設定 → 接続」からいつでも外せます）。<br>
+        パスワードと二段階認証は Twitch 側で確認します。Twitch アカウントの二段階認証を有効にしておいてください。
     </p>
 </div>
 
