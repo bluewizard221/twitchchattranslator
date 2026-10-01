@@ -1,18 +1,14 @@
 {
-  "_comment": "このファイルを config/webui.json にコピーして編集してください。各項目は同名の環境変数（WEBUI_ で始まる）でも指定できます。",
+  "_comment": "このファイルを config/webui.json にコピーして編集してください。各項目は同名の環境変数（WEBUI_ で始まる）でも指定できます。Twitch アプリの Client ID / Secret は共通の設定（config/default.json か config/local.json）から読みます。",
 
   "port": 3000,
-  "host": "127.0.0.1",
+  "host": "0.0.0.0",
 
-  "twitchClientId": "管理画面のログインに使う Twitch アプリの Client ID（未設定の場合は bot 設定の twitchClientId を流用）",
-  "twitchClientSecret": "同じアプリの Client Secret（未設定の場合は bot 設定の twitchClientSecret を流用）",
-  "redirectUri": "http://localhost:3000/auth/twitch/callback",
-
-  "allowedUsers": ["ログインを許可する Twitch ユーザー名（アルファベット）をここに列挙します"],
+  "redirectUri": "https://translate.example.com/auth/twitch/callback",
 
   "sessionSecret": "セッション Cookie の署名に使うランダムな文字列（例: openssl rand -hex 32）",
   "sessionHours": 12,
 
-  "trustProxy": false,
-  "secureCookie": false
+  "trustProxy": true,
+  "secureCookie": true
 }

@@ -2,7 +2,7 @@
   "name": "twitchchattranslator",
   "version": "1.0.0",
   "description": "twitch chat translator",
-  "main": "twitchchattranslator.js",
+  "main": "manager.js",
   "engines": {
     "node": ">=18"
   },
@@ -15,9 +15,10 @@
     "log4js": "^6.9.1"
   },
   "scripts": {
-    "start": "node twitchchattranslator.js",
+    "start": "node manager.js",
     "web": "node web/server.js",
     "emotes": "NODE_ENV=jsonupdate node emotelistupdate.js",
+    "migrate": "node scripts/migrate-single-channel.js",
     "test": "node --test test/*.test.js"
   },
   "author": "",

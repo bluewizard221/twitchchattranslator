@@ -2,8 +2,13 @@ node_modules
 logs
 # config/ holds credentials (twitch tokens, GCP service-account key); mounted at runtime
 config/
+# チャンネルごとの秘密の値（bot のトークン・GCP のキー）と操作の記録・使用量。実行時にマウントする
+channels/
+data/
+test/
 *.json.orig
 *.js.orig
+*.bak
 .git
 .gitignore
 .github

@@ -221,7 +221,9 @@ function createManager(options) {
             callbackUrl: shared.eventsubCallbackUrl || null,
             lastSync: eventsubState.lastSync,
             revocations: eventsubState.revocations.slice(-10),
-            dropped: eventsubState.dropped
+            dropped: eventsubState.dropped,
+            // トークンそのものは返さない（状態の口は認証なし）
+            appTokenExpiresAt: api && api.appTokenInfo() ? new Date(api.appTokenInfo().expiresAt).toISOString() : null
         };
 
         if (opts.startWeb && (!web || web.state !== 'running')) {

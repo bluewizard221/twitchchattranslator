@@ -102,6 +102,10 @@ test('署名付きの Webhook を、配信者の ID に対応するチャンネ�
         assert.strictEqual(result.created, 10);
         assert.ok(api.created.some((c) => c.type === 'channel.chat.message' && c.condition.broadcaster_user_id === '222' && c.condition.user_id === '922'));
         assert.strictEqual(manager.status().eventsub.configured, true);
+
+        // 状態の口には期限だけを出し、トークンそのものは出さない
+        assert.strictEqual(manager.status().eventsub.appTokenExpiresAt, new Date(123).toISOString());
+        assert.strictEqual(JSON.stringify(manager.status()).indexOf('app-token-1'), -1);
     } finally {
         await manager.stop();
     }

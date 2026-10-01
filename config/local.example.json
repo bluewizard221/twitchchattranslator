@@ -1,0 +1,11 @@
+{
+  "_comment": "共通の設定の例。config/local.json にコピーして編集してください（config/default.json より優先されます）。管理画面の「共通の設定」からも変更できます。",
+  "config": {
+    "twitchClientId": "Twitch Developer Console で登録したアプリの Client ID",
+    "twitchClientSecret": "同じアプリの Client Secret",
+    "eventsub": {
+      "callbackUrl": "https://translate.example.com/eventsub/callback",
+      "secret": "10〜100 文字のランダムな文字列（例: openssl rand -hex 32）"
+    }
+  }
+}

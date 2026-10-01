@@ -73,3 +73,7 @@ README.BAK
 
 # config directory
 config/*
+
+# 複数チャンネル版の実データ（チャンネルごとの秘密の値・設定・ログ、操作の記録・使用量）
+channels/
+data/
