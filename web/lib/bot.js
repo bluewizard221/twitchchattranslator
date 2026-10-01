@@ -4,8 +4,22 @@ const fs = require('fs');
 const path = require('path');
 const paths = require('../../lib/paths');
 
-/** pidFile に書かれたプロセス ID を読み取る */
-function readPid(pidFile) {
+/** /proc/<pid>/cmdline から、そのプロセスが bot（twitchchattranslator.js）かどうかを調べる */
+function isBotProcess(pid) {
+    try {
+        return fs.readFileSync('/proc/' + pid + '/cmdline', 'utf8').indexOf('twitchchattranslator') !== -1;
+    } catch (err) {
+        // /proc がない環境（Linux 以外など）では確認できないので bot とはみなさない
+        return false;
+    }
+}
+
+/**
+ * pidFile に書かれたプロセス ID を読み取る。
+ * PID 1 は通常 init なので拒否するが、コンテナ内で bot 自身が PID 1 の場合は許可する。
+ */
+function readPid(pidFile, options) {
+    const checkBotProcess = (options && options.isBotProcess) || isBotProcess;
     const configured = typeof pidFile === 'string' ? pidFile.trim() : '';
 
     if (configured === '') {
@@ -30,8 +44,12 @@ function readPid(pidFile) {
 
     const pid = Number(raw.trim());
 
-    if (!Number.isInteger(pid) || pid <= 1) {
+    if (!Number.isInteger(pid) || pid < 1) {
         return { ok: false, path: absolute, error: 'PID ファイルの内容が不正です: ' + raw.trim().slice(0, 40) };
+    }
+
+    if (pid === 1 && !checkBotProcess(1)) {
+        return { ok: false, path: absolute, error: 'PID 1 は bot のプロセスではないため、シグナルを送りません。' };
     }
 
     return { ok: true, pid: pid, path: absolute };
