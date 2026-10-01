@@ -154,7 +154,7 @@ const GROUPS = [
     { key: 'channel', label: '対象チャンネル', help: 'Twitch ログイン情報から自動入力できます。' },
     { key: 'app', label: 'Twitch アプリケーション', help: 'Twitch Developer Console で登録したアプリの認証情報です。' },
     { key: 'google', label: 'Google Cloud Translation', help: '翻訳 API に接続するための設定です。' },
-    { key: 'behavior', label: '動作設定', help: '翻訳の挙動に関する設定です。' }
+    { key: 'behavior', label: '動作設定', help: '翻訳の挙動に関する設定です。チャンネル主の発言は常に、それ以外のユーザーの発言は配信中のみ翻訳します。' }
 ];
 
 const FIELD_BY_KEY = new Map(FIELDS.map((field) => [field.key, field]));

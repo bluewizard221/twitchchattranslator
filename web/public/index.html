@@ -63,6 +63,20 @@
         </div>
         <p class="panel-help" id="botStatusText">—</p>
     </div>
+
+    <div class="panel">
+        <h2>翻訳と投稿のルール</h2>
+        <p class="panel-help">bot はチャットを次のルールで翻訳・投稿します。</p>
+        <ul class="rule-list">
+            <li><strong>チャンネル主の発言</strong>は、配信中かどうかに関係なく常に翻訳します。</li>
+            <li><strong>それ以外のユーザーの発言</strong>は、配信中のみ翻訳します。配信中かどうかは
+                <span id="pollIntervalText">60 秒</span>ごとに Twitch に問い合わせて判定するため、配信の開始・終了の反映は最大でこの間隔ぶん遅れます
+                （間隔は「基本設定」の「配信状態の確認間隔」で変更できます）。<code>!refreshignoreuser</code> などのコマンドは常に使えます。</li>
+            <li><strong>翻訳の投稿</strong>は、チャンネル主が bot を許可している（<code>channel:bot</code>）か、bot がそのチャンネルのモデレーターである場合にだけ行います。
+                許可がないと投稿されず、その旨が「ログ」タブに記録されます。チャンネル主の同意なしに投稿しないよう、IRC での代替投稿は行いません。</li>
+            <li><strong>対象チャンネル</strong>は、この管理画面にログインしているアカウントのチャンネルしか設定できません。</li>
+        </ul>
+    </div>
 </section>
 
 <!-- ============================ 基本設定 ============================ -->

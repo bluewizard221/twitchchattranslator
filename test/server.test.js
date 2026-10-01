@@ -581,3 +581,24 @@ test('未ログインではログを読めない', async () => {
     assert.strictEqual((await request(jar, 'GET', '/api/logs')).status, 401);
     assert.strictEqual((await request(jar, 'GET', '/api/logs/bot')).status, 401);
 });
+
+test('概要 API は配信状態の確認間隔を返す（未設定なら bot と同じ 60 秒）', async () => {
+    const jar = newJar();
+    const session = await login(jar);
+
+    assert.strictEqual((await request(jar, 'GET', '/api/overview')).body.streamStatusPollSeconds, 60);
+
+    await request(jar, 'PUT', '/api/config', {
+        headers: { 'X-CSRF-Token': session.csrfToken },
+        body: { values: { streamStatusPollSeconds: '30' } }
+    });
+
+    assert.strictEqual((await request(jar, 'GET', '/api/overview')).body.streamStatusPollSeconds, 30);
+
+    await request(jar, 'PUT', '/api/config', {
+        headers: { 'X-CSRF-Token': session.csrfToken },
+        body: { values: { streamStatusPollSeconds: '' } }
+    });
+
+    assert.strictEqual((await request(jar, 'GET', '/api/overview')).body.streamStatusPollSeconds, 60);
+});

@@ -633,3 +633,15 @@ input.locked-input {
     white-space: pre-wrap;
     word-break: break-all;
 }
+
+/* ---------------- 翻訳と投稿のルール ---------------- */
+
+.rule-list {
+    margin: 0;
+    padding-left: 20px;
+    font-size: 14px;
+    color: var(--text-muted);
+}
+
+.rule-list li + li { margin-top: 6px; }
+.rule-list strong { color: var(--text); }

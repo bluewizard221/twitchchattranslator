@@ -306,6 +306,8 @@ function createApiRouter(config, logger) {
             // config/default.json を直接書き換えた場合などに、ログイン中のアカウントと食い違うことがある
             channelMatchesLogin: matchesLogin(values, req.session.user),
             loginChannel: req.session.user.login,
+            // bot と同じ既定値（twitchchattranslator.js の streamStatusPollSeconds || 60）
+            streamStatusPollSeconds: Number(values.streamStatusPollSeconds) || 60,
             botUserName: values.twitchUserName || null,
             missingRequired: missing,
             lists: listSummary,

@@ -212,6 +212,8 @@
                 ? 'bot は稼働中です（PID ' + data.bot.pid + '）。'
                 : (data.bot.message || 'bot の状態を確認できませんでした。');
 
+            document.getElementById('pollIntervalText').textContent = data.streamStatusPollSeconds + ' 秒';
+
             var brand = document.getElementById('brandChannel');
 
             brand.textContent = data.channel ? '#' + data.channel : '管理画面';
