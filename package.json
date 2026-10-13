@@ -2,17 +2,24 @@
   "name": "twitchchattranslator",
   "version": "1.0.0",
   "description": "twitch chat translator",
-  "main": "twitchchattranslator.js",
+  "main": "manager.js",
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
-    "@google-cloud/translate": "^9.3.0",
+    "@google-cloud/translate": "^9.4.1",
     "config": "^3.3.12",
-    "fs": "^0.0.1-security",
-    "got": "^11.8.6",
-    "log4js": "^6.9.1",
-    "tmi.js": "^1.8.5"
+    "express": "^5.2.1",
+    "express-session": "^1.19.0",
+    "fs": "0.0.1-security",
+    "log4js": "^6.9.1"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node manager.js",
+    "web": "node web/server.js",
+    "emotes": "NODE_ENV=jsonupdate node emotelistupdate.js",
+    "migrate": "node scripts/migrate-single-channel.js",
+    "test": "node --test test/*.test.js"
   },
   "author": "",
   "license": "MIT"

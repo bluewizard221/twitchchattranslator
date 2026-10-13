@@ -1,0 +1,4 @@
+{
+  "_comment": "このファイルを config/operators.json にコピーして編集してください。運営者の Twitch ログイン名（半角英小文字）を並べます。管理画面の「共通の設定」からも変更できます。",
+  "operators": ["your_twitch_login"]
+}

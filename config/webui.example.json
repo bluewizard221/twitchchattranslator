@@ -1,0 +1,14 @@
+{
+  "_comment": "このファイルを config/webui.json にコピーして編集してください。各項目は同名の環境変数（WEBUI_ で始まる）でも指定できます。Twitch アプリの Client ID / Secret は共通の設定（config/default.json か config/local.json）から読みます。",
+
+  "port": 3000,
+  "host": "0.0.0.0",
+
+  "redirectUri": "https://translate.example.com/auth/twitch/callback",
+
+  "sessionSecret": "セッション Cookie の署名に使うランダムな文字列（例: openssl rand -hex 32）",
+  "sessionHours": 12,
+
+  "trustProxy": true,
+  "secureCookie": true
+}
