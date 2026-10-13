@@ -7,7 +7,8 @@
         user: null,
         role: null,          // { login, isOperator, channel }
         loaded: {},
-        pendingKey: null
+        pendingKey: null,
+        flash: null          // OAuth から戻ったときの結果。エラーはマイチャンネルの通知欄にも残す
     };
 
     // ------------------------------------------------------------------
@@ -280,7 +281,10 @@
 
             var notices = $('channelNotices');
 
-            if (!data.managerAvailable) {
+            if (state.flash && state.flash.type !== 'ok') {
+                setNotice(notices, 'error', state.flash.text);
+                state.flash = null;
+            } else if (!data.managerAvailable) {
                 setNotice(notices, 'error', '管理プロセスに接続できないため、bot の状態を確認できません。運営者に連絡してください。');
             } else if (data.owner && data.owner.usage.exceeded) {
                 setNotice(notices, 'warn', '今日の翻訳文字数が上限（' + formatNumber(data.owner.usage.dailyLimit) +
@@ -301,7 +305,7 @@
 
         clear(list);
 
-        function step(done, title, body, actions) {
+        function step(done, title, body, actions, extra) {
             var item = el('li', 'step ' + (done ? 'step-done' : 'step-todo'));
             var head = el('div', 'step-head');
 
@@ -310,6 +314,7 @@
             item.appendChild(head);
 
             if (body) { item.appendChild(el('p', 'step-body', body)); }
+            if (extra) { item.appendChild(extra); }
 
             if (actions && actions.length) {
                 var row = el('div', 'step-actions');
@@ -345,6 +350,7 @@
 
         var botBody;
         var botActions = [];
+        var botHowTo = null;
 
         if (bot.connected) {
             botBody = 'bot アカウント「' + bot.botLogin + '」を接続しています（' + formatDateTime(bot.connectedAt) + '）。';
@@ -353,15 +359,16 @@
                 botBody += ' 必要な許可が足りません: ' + bot.missingScopes.join(', ') + '。接続し直してください。';
             }
 
+            botBody += ' 接続し直すときも、先に別のタブで twitch.tv をログアウトしてください。';
             botActions.push(link('接続し直す', '/auth/bot/' + encodeURIComponent(data.login)));
             botActions.push(button('接続を解除', disconnectBot, 'btn-danger'));
         } else {
-            botBody = '翻訳を投稿する bot 用の Twitch アカウントを接続します。ボタンを押すと Twitch のログイン画面になるので、' +
-                'チャンネル主ではなく bot 用のアカウントでログインして許可してください（チャンネル主のアカウントは使えません）。';
+            botBody = '翻訳を投稿する bot 用の Twitch アカウント（チャンネル主とは別のアカウント）を接続します。次の順に進めてください。';
+            botHowTo = howToConnectBot();
             botActions.push(link('bot アカウントを接続', '/auth/bot/' + encodeURIComponent(data.login), true));
         }
 
-        step(bot.connected && bot.missingScopes.length === 0, 'bot アカウントの接続', botBody, botActions);
+        step(bot.connected && bot.missingScopes.length === 0, 'bot アカウントの接続', botBody, botActions, botHowTo);
 
         // モデレーターかどうかはこの画面からは確認できないので、完了の印は付けずに案内だけする
         var modItem = el('li', 'step step-info');
@@ -393,6 +400,30 @@
         }
 
         step(running, 'bot の起動', startBody);
+    }
+
+    /**
+     * bot アカウントの接続の手順。
+     * Twitch の許可の画面は、そのブラウザで Twitch にログインしているアカウントで許可してしまい、アカウントを選ぶ画面は出ない。
+     * チャンネル主でログインしたままだと接続できないので、先に twitch.tv をログアウトしてもらう。
+     */
+    function howToConnectBot() {
+        var list = el('ol', 'step-howto');
+
+        [
+            'この管理画面は、チャンネル主のアカウントでログインしたままにします（ログアウトしないでください）。',
+            '別のタブで twitch.tv を開き、Twitch をログアウトします。この管理画面のログインは切れません。',
+            '下の「bot アカウントを接続」を押します。Twitch のログイン画面になるので、bot 用のアカウントでログインして許可します。',
+            '終わったら、twitch.tv にはチャンネル主のアカウントでログインし直して構いません。'
+        ].forEach(function (text) { list.appendChild(el('li', null, text)); });
+
+        var wrap = el('div');
+
+        wrap.appendChild(list);
+        wrap.appendChild(el('p', 'step-body', 'Twitch にチャンネル主のアカウントでログインしたままだと、アカウントを選ぶ画面は出ず、' +
+            'チャンネル主のアカウントとして扱われるため接続できません。bot 用のアカウントでこの管理画面にログインする必要はありません（ログインもできません）。'));
+
+        return wrap;
     }
 
     function renderChannelStats(data) {
@@ -1210,7 +1241,8 @@
         'bot.connect': 'bot アカウントの接続',
         'bot.disconnect': 'bot アカウントの接続解除',
         'shared.config': '共通の設定の変更',
-        'operators.update': '運営者の一覧の変更'
+        'operators.update': '運営者の一覧の変更',
+        'channel.migrate': '以前の版からの移行'
     };
 
     function auditScopes() {
@@ -1420,7 +1452,11 @@
 
         // bot アカウントの接続（OAuth）から戻ったときの結果
         if (data.flash) {
-            toast(data.flash.type === 'ok' ? 'ok' : 'error', data.flash.text);
+            state.flash = data.flash;
+            // エラーの説明は長いので、通知欄（マイチャンネル）に残し、トーストは短くする
+            toast(data.flash.type === 'ok' ? 'ok' : 'error', data.flash.type === 'ok'
+                ? data.flash.text
+                : 'bot アカウントを接続できませんでした。「マイチャンネル」の案内を確認してください。');
         }
 
         var views = availableViews();

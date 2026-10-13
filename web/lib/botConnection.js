@@ -52,7 +52,9 @@ function save(login, token, botUser, broadcasterId) {
     if (broadcasterId && String(botUser.id) === String(broadcasterId)) {
         return {
             ok: false,
-            error: 'チャンネル主のアカウントは bot アカウントとして使えません（bot 自身の発言は翻訳しないため、チャンネル主の発言が翻訳されなくなります）。bot 用の別のアカウントでログインしてください。'
+            error: 'チャンネル主のアカウントで許可されたため、接続しませんでした（bot 自身の発言は翻訳しないので、チャンネル主のアカウントは bot に使えません）。' +
+                'Twitch にチャンネル主でログインしたままだと、アカウントを選ぶ画面は出ません。' +
+                'この管理画面はログインしたままで、別のタブで twitch.tv をログアウトしてから、もう一度「bot アカウントを接続」を押し、bot 用のアカウントでログインしてください。'
         };
     }
     if (!token.access_token || !token.refresh_token) {

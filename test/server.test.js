@@ -231,7 +231,11 @@ test('チャンネル主のアカウントを bot アカウントにはできな
 
     assert.strictEqual(callback.headers.get('location'), '/#channel');
     assert.strictEqual(fs.existsSync(h.paths.channel('bob').botTokens), false);
-    assert.ok((await h.request(jar, 'GET', '/api/session')).body.flash.text.indexOf('チャンネル主') !== -1);
+    const text = (await h.request(jar, 'GET', '/api/session')).body.flash.text;
+
+    assert.ok(text.indexOf('チャンネル主') !== -1);
+    // どうすれば接続できるかも伝える（Twitch にチャンネル主でログインしたままだとアカウントを選ぶ画面が出ない）
+    assert.ok(text.indexOf('twitch.tv をログアウト') !== -1);
 });
 
 test('接続を始めたあとで権限を失った場合は保存せず、トークンを無効化する', async () => {
