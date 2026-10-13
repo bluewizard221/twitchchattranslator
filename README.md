@@ -48,8 +48,8 @@ IRC は使いません。
 ### データの配置
 
 ```
-config/default.json         共通の設定（Twitch アプリの Client ID / Secret など）
-config/local.json           共通の設定の上書き（管理画面の「共通の設定」の保存先。EventSub の設定もここ）
+config/default.json         共通の設定のひな形（リポジトリのもの。実際の値は書かない）
+config/local.json           共通の設定の実際の値（Twitch アプリの Client ID / Secret、EventSub。管理画面の「共通の設定」の保存先）
 config/operators.json       運営者の Twitch ログイン名
 config/webui.json           管理画面の設定
 channels/<login>/
@@ -84,8 +84,9 @@ logs/                       管理プロセスと管理画面のログ
 1. **Twitch アプリを登録します。** OAuth のリダイレクト URL に `https://<ドメイン>/auth/twitch/callback` を登録し、
    「クライアントの秘密」を発行します（ページを移ると再表示できないので控えてください）。
 
-2. **共通の設定を書きます。** `config/local.example.json` を `config/local.json` にコピーして編集します
-   （`config/default.json` に書いても構いません。同じ項目は `local.json` が優先されます）。管理画面の「共通の設定」からも変更できます。
+2. **共通の設定を書きます。** `config/local.example.json` を `config/local.json` にコピーして編集します。
+   `config/default.json` はリポジトリのひな形なので、実際の値は書かないでください（`local.json` は git の対象外で、同じ項目は `local.json` が優先されます）。
+   管理画面の「共通の設定」からも変更できます。
 
    <dl>
    <dt>twitchClientId / twitchClientSecret</dt>
@@ -293,7 +294,14 @@ ignoreusers.json:
 
 ## 単一チャンネル版からの移行
 
-以前の版（`config/default.json` に bot アカウントの情報まで入れて 1 チャンネルで動かす形）からは、移行スクリプトで移します。
+以前の版（`config/default.json` に bot アカウントの情報まで入れて 1 チャンネルで動かす形）からは、次の順で更新します。
+
+1. **更新の前に、`config/default.json` を `config/local.json` にコピーします**（すでに `local.json` がある場合は中身を合わせます）。
+   新しい版の `config/default.json` は値の入っていないひな形なので、`git pull` で上書きされても設定が残るようにするためです。
+   `config/default.json` を書き換えていると `git pull` が止まるので、コピーしたあとで `git checkout -- config/default.json` で元に戻してから更新します
+   （`git update-index --skip-worktree` を設定している場合は、先に `--no-skip-worktree` で外します）。
+2. `git pull` と `npm ci --omit=dev` で更新します。
+3. 移行スクリプトで、チャンネルのデータを移します。
 
 ```bash
 node scripts/migrate-single-channel.js <login>                      # 何を移すかを表示するだけ
@@ -306,8 +314,11 @@ node scripts/migrate-single-channel.js <login> --apply --operator   # 移して�
 * 元のファイルは消しません。設定の対象チャンネルと違うログイン名や、すでにあるチャンネルへの移行は拒否します。
 * コンテナと同じ uid（1000）で実行してください。
 
-移行後、起動コマンドを `node manager.js` に変えます。以前の版のエモート更新（`emotelistupdate.js` と `config/jsonupdate.json`、
-ホストの cron など）は不要になります。
+移行後、EventSub の設定（[運営者の準備](#運営者の準備)の 2）と管理画面の設定を済ませ、起動コマンドを `node manager.js` に変えます。
+以前の版のエモート更新（`emotelistupdate.js` と `config/jsonupdate.json`）は削除しました。ホストの cron などで動かしていた場合は外してください。
+bot アカウントを接続し直して翻訳を確かめたら、`config/local.json` から以前の版の項目（`twitchOauth`、`twitchBotUserAccessToken`、
+`twitchBotRefreshToken`、`googleKeyFile` など）を消し、`config/tokens.json` と以前の GCP キーのファイルも片付けます。
+ルートの ignoreusers.json / ignoreline.json / emoticons.json は、移行スクリプトが読むためだけに残しています。
 
 
 ## テスト

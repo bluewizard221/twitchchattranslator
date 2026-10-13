@@ -1,6 +1,0 @@
-{
-  "config": {
-    "twitchChannel": 自分のtwitchチャンネル名（アルファベット）,
-    "twitchUserId": 自分のtwitchアカウントのユーザーID（数字）
-  }
-}
