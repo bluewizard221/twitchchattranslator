@@ -70,7 +70,7 @@ logs/                       管理プロセスと管理画面のログ
 
 ## 必要なもの
 
-* Node.js 20 以降（Docker のイメージは `node:20-alpine`）
+* Node.js 24 以降（Docker のイメージは `node:24-alpine`）
 * **HTTPS で公開できるドメイン**（443 番）。EventSub の Webhook は 443 番の HTTPS にしか届きません。管理画面のログインにも使います。
 * 運営者が用意するもの: Twitch アプリ（[dev.twitch.tv](https://dev.twitch.tv/) で登録。全チャンネルで共通）
 * 配信者が用意するもの:
@@ -332,4 +332,4 @@ EventSub の署名の検証、管理プロセス、bot、削除の手順、移�
 
 
 ## 動作確認済み環境
-* Docker の node:20-alpine（Node.js 20.20.2）と Node.js 24 でテストしています。
+* Docker の node:24-alpine（Node.js 24.22.0）と Node.js 24.19.0 でテストしています。

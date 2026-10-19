@@ -4,7 +4,7 @@
   "description": "twitch chat translator",
   "main": "manager.js",
   "engines": {
-    "node": ">=18"
+    "node": ">=24"
   },
   "dependencies": {
     "@google-cloud/translate": "^9.4.1",

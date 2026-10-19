@@ -1,5 +1,5 @@
-# Node.js 20 LTS
-FROM node:20-alpine
+# Node.js 24 LTS
+FROM node:24-alpine
 
 WORKDIR /app
 
